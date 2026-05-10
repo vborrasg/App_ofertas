@@ -1,5 +1,5 @@
 streamlit
 pandas
 openpyxl
-snowflake-connector-python
+snowflake-connector-python>=3.12.0
 fpdf2
