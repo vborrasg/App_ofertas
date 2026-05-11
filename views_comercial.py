@@ -9,7 +9,7 @@ from data import (
     load_tarifas, load_clientes, buscar_cliente, get_familias_por_materia,
     get_articulos_familia, get_coste_transporte, load_materias_primas,
     save_oferta, next_oferta_number, get_config, set_config, load_ofertas,
-    PLANTAS, TIPOS_MATERIA_PRIMA
+    load_oferta_lineas, PLANTAS, TIPOS_MATERIA_PRIMA
 )
 from calculator import calcular_linea
 from pdf_generator import generar_pdf_oferta
@@ -33,9 +33,51 @@ def _mis_ofertas():
     if df.empty:
         st.info("No tienes ofertas todavía.")
         return
+
     show_cols = ["NUMERO_OFERTA", "FECHA", "CLIENTE_NOMBRE", "TOTAL", "ESTADO"]
     show_cols = [c for c in show_cols if c in df.columns]
     st.dataframe(df[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### 🔎 Ver / Reimprimir oferta")
+    ids = df["NUMERO_OFERTA"].tolist()
+    sel_oferta = st.selectbox("Seleccionar oferta", ids, key="sel_mis_oferta")
+    if sel_oferta:
+        of_row = df[df["NUMERO_OFERTA"] == sel_oferta].iloc[0]
+        oferta_id = int(of_row["ID"])
+        oferta_dict = of_row.to_dict()
+        lineas_df = load_oferta_lineas(oferta_id)
+
+        # Detalle de la oferta
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Cliente", oferta_dict.get("CLIENTE_NOMBRE", ""))
+        col2.metric("Subtotal", f"{float(oferta_dict.get('SUBTOTAL', 0)):,.2f}€")
+        col3.metric("Portes", f"{float(oferta_dict.get('PORTES', 0)):,.2f}€")
+        col4.metric("Total", f"{float(oferta_dict.get('TOTAL', 0)):,.2f}€")
+
+        # Líneas
+        if not lineas_df.empty:
+            line_cols = ["TIPO_PRODUCTO", "CALIDAD", "DESCRIPCION", "PLANTA",
+                         "CANTIDAD", "PRECIO_PIEZA_CON_SCRAP", "TOTAL_LINEA"]
+            line_cols = [c for c in line_cols if c in lineas_df.columns]
+            st.dataframe(lineas_df[line_cols].reset_index(drop=True),
+                         use_container_width=True, hide_index=True)
+
+        # Botón reimprimir PDF
+        if st.button("📄 Descargar PDF", key="btn_reprint", type="primary", use_container_width=True):
+            try:
+                from pdf_generator import generar_pdf_oferta
+                lineas_list = lineas_df.to_dict("records") if not lineas_df.empty else []
+                pdf_bytes = generar_pdf_oferta(oferta_dict, lineas_list)
+                st.download_button(
+                    label="⬇️ Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Oferta_{sel_oferta}_{oferta_dict.get('CLIENTE_NOMBRE','')}.pdf",
+                    mime="application/pdf",
+                    key="dl_reprint"
+                )
+            except Exception as e:
+                st.error(f"❌ Error al generar PDF: {e}")
 
 
 # ── CREAR OFERTA ──────────────────────────────────────────────────────────────
