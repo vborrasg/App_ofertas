@@ -59,6 +59,47 @@ def fix():
         cs.execute(sql)
         print(f"✅ Múltiplos ETIX subidos correctamente")
 
+        # ── 4. Subir múltiplos PANEL AISLANTE (2000x1000 y 2000x1200) ──
+        print("\nSubiendo múltiplos logísticos PANEL AISLANTE...")
+        cs.execute("DELETE FROM LOGISTICA WHERE DIMENSION IN ('2000X1000', '2000X1200')")
+        sql2 = """INSERT INTO LOGISTICA (PRODUCTO, DIMENSION, ESPESOR, PZAS_PAQUETE, PZAS_BLOQUE) VALUES
+        ('PLANCHA', '2000X1000', 10, 48, 357), ('PLANCHA', '2000X1000', 15, 32, 234),
+        ('PLANCHA', '2000X1000', 20, 25, 180), ('PLANCHA', '2000X1000', 25, 20, 144),
+        ('PLANCHA', '2000X1000', 30, 16, 120), ('PLANCHA', '2000X1000', 35, 14, 102),
+        ('PLANCHA', '2000X1000', 40, 12, 90), ('PLANCHA', '2000X1000', 45, 11, 78),
+        ('PLANCHA', '2000X1000', 50, 10, 72), ('PLANCHA', '2000X1000', 60, 8, 60),
+        ('PLANCHA', '2000X1000', 70, 7, 51), ('PLANCHA', '2000X1000', 80, 6, 45),
+        ('PLANCHA', '2000X1000', 90, 5, 39), ('PLANCHA', '2000X1000', 100, 5, 36),
+        ('PLANCHA', '2000X1000', 110, 4, 30), ('PLANCHA', '2000X1000', 120, 4, 30),
+        ('PLANCHA', '2000X1000', 130, 3, 27), ('PLANCHA', '2000X1000', 140, 3, 24),
+        ('PLANCHA', '2000X1000', 150, 3, 24), ('PLANCHA', '2000X1000', 160, 3, 21),
+        ('PLANCHA', '2000X1000', 170, 2, 21), ('PLANCHA', '2000X1000', 180, 2, 18),
+        ('PLANCHA', '2000X1000', 190, 2, 18), ('PLANCHA', '2000X1000', 200, 2, 18),
+        ('PLANCHA', '2000X1000', 210, 2, 15), ('PLANCHA', '2000X1000', 220, 2, 15),
+        ('PLANCHA', '2000X1000', 230, 2, 15), ('PLANCHA', '2000X1000', 240, 2, 15),
+        ('PLANCHA', '2000X1000', 250, 2, 12), ('PLANCHA', '2000X1000', 260, 2, 12),
+        ('PLANCHA', '2000X1000', 270, 2, 12), ('PLANCHA', '2000X1000', 280, 2, 12),
+        ('PLANCHA', '2000X1000', 290, 2, 12), ('PLANCHA', '2000X1000', 300, 2, 12),
+        ('PLANCHA', '2000X1200', 10, 48, 240), ('PLANCHA', '2000X1200', 15, 32, 198),
+        ('PLANCHA', '2000X1200', 20, 25, 150), ('PLANCHA', '2000X1200', 25, 20, 120),
+        ('PLANCHA', '2000X1200', 30, 16, 99), ('PLANCHA', '2000X1200', 35, 14, 84),
+        ('PLANCHA', '2000X1200', 40, 12, 75), ('PLANCHA', '2000X1200', 45, 11, 66),
+        ('PLANCHA', '2000X1200', 50, 10, 60), ('PLANCHA', '2000X1200', 60, 8, 48),
+        ('PLANCHA', '2000X1200', 70, 7, 42), ('PLANCHA', '2000X1200', 80, 6, 36),
+        ('PLANCHA', '2000X1200', 90, 5, 33), ('PLANCHA', '2000X1200', 100, 5, 30),
+        ('PLANCHA', '2000X1200', 110, 4, 27), ('PLANCHA', '2000X1200', 120, 4, 24),
+        ('PLANCHA', '2000X1200', 130, 3, 21), ('PLANCHA', '2000X1200', 140, 3, 21),
+        ('PLANCHA', '2000X1200', 150, 3, 18), ('PLANCHA', '2000X1200', 160, 3, 18),
+        ('PLANCHA', '2000X1200', 170, 2, 15), ('PLANCHA', '2000X1200', 180, 2, 15),
+        ('PLANCHA', '2000X1200', 190, 2, 15), ('PLANCHA', '2000X1200', 200, 2, 15),
+        ('PLANCHA', '2000X1200', 210, 2, 12), ('PLANCHA', '2000X1200', 220, 2, 12),
+        ('PLANCHA', '2000X1200', 230, 2, 12), ('PLANCHA', '2000X1200', 240, 2, 12),
+        ('PLANCHA', '2000X1200', 250, 2, 12), ('PLANCHA', '2000X1200', 260, 2, 9),
+        ('PLANCHA', '2000X1200', 270, 2, 9), ('PLANCHA', '2000X1200', 280, 2, 9),
+        ('PLANCHA', '2000X1200', 290, 2, 9), ('PLANCHA', '2000X1200', 300, 2, 9)"""
+        cs.execute(sql2)
+        print(f"✅ Múltiplos PANEL AISLANTE subidos correctamente")
+
         print("\n✅ Base de datos sincronizada al 100%.")
     finally:
         cs.close()
