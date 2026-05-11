@@ -85,10 +85,8 @@ def generar_pdf_oferta(oferta, lineas):
         [Paragraph(f"<b>Dirección:</b> {oferta.get('CLIENTE_DIRECCION','')}", s_small),
          Paragraph(f"<b>Email:</b> {oferta.get('CLIENTE_EMAIL','')}", s_small)],
     ]
-    t_cl = Table(cl_data, colWidths=[95*mm, 75*mm])
+    t_cl = Table(cl_data, colWidths=[90*mm, 75*mm])
     t_cl.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.5, GRIS_BORDE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, GRIS_BORDE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
@@ -101,7 +99,7 @@ def generar_pdf_oferta(oferta, lineas):
         "sec2", parent=styles["Normal"], fontSize=10, textColor=AZUL, spaceAfter=2*mm)))
 
     headers = ["Producto", "Artículo", "Dimensiones", "Planta", "Uds",
-               "€/m³\nCon Scrap", "€/pza\nCon Scrap", "€/pza\nSin Scrap", "Importe"]
+               "€/m³", "€/pza", "Importe"]
     prod_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle("hdr_cell",
                   parent=styles["Normal"], fontSize=6, textColor=white,
                   alignment=TA_CENTER)) for h in headers]]
@@ -116,12 +114,11 @@ def generar_pdf_oferta(oferta, lineas):
                 Paragraph(str(int(ln.get("CANTIDAD", 0))), s_small),
                 Paragraph(f"{ln.get('EUR_M3_CON_SCRAP', ln.get('PRECIO_M3', 0)):.2f}", s_small),
                 Paragraph(f"{ln.get('PRECIO_PIEZA_CON_SCRAP', ln.get('PRECIO_UNITARIO', 0)):.4f}", s_small),
-                Paragraph(f"{ln.get('PRECIO_PIEZA_SIN_SCRAP', 0):.4f}", s_small),
                 Paragraph(f"{ln.get('TOTAL_LINEA', 0):,.2f}", s_small),
             ]
             prod_data.append(row)
 
-    col_w = [20*mm, 24*mm, 22*mm, 16*mm, 12*mm, 16*mm, 16*mm, 16*mm, 20*mm]
+    col_w = [22*mm, 28*mm, 25*mm, 18*mm, 14*mm, 18*mm, 18*mm, 22*mm]
     t_prod = Table(prod_data, colWidths=col_w, repeatRows=1)
     t_style = [
         ("BACKGROUND", (0, 0), (-1, 0), FONDO_HDR),
@@ -190,13 +187,34 @@ def generar_pdf_oferta(oferta, lineas):
         elements.append(Paragraph(f"<b>OBSERVACIONES:</b> {obs}", s_normal))
         elements.append(Spacer(1, 3*mm))
 
-    # ── CONDICIONES LEGALES ───────────────────────────────
+    # ── CONDICIONES LEGALES (nueva página) ──────────────────
     cond_legales = get_config("condiciones_legales", "")
     if cond_legales:
-        elements.append(Paragraph("<b>CONDICIONES</b>", ParagraphStyle(
-            "cond_t", parent=styles["Normal"], fontSize=8, textColor=AZUL)))
-        elements.append(Paragraph(cond_legales, ParagraphStyle(
-            "cond_txt", parent=styles["Normal"], fontSize=6, textColor=HexColor("#555555"))))
+        from reportlab.platypus import PageBreak
+        elements.append(PageBreak())
+        elements.append(Paragraph("<b>CONDICIONES GENERALES DE VENTA</b>", ParagraphStyle(
+            "cond_title", parent=styles["Normal"], fontSize=12, textColor=AZUL,
+            spaceAfter=4*mm, alignment=TA_CENTER)))
+        elements.append(Spacer(1, 3*mm))
+
+        s_cond_heading = ParagraphStyle("cond_h", parent=styles["Normal"],
+            fontSize=8, textColor=AZUL, spaceBefore=3*mm, spaceAfter=1*mm,
+            leading=10)
+        s_cond_body = ParagraphStyle("cond_b", parent=styles["Normal"],
+            fontSize=7, textColor=HexColor("#333333"), spaceAfter=1.5*mm,
+            leading=9)
+
+        for raw_line in cond_legales.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                elements.append(Spacer(1, 2*mm))
+                continue
+            # Detectar títulos: líneas que empiezan con número + punto/paréntesis, o todo mayúsculas
+            is_title = (len(line) > 2 and (line[0].isdigit() and line[1] in ".-)") or line.isupper())
+            if is_title:
+                elements.append(Paragraph(f"<b>{line}</b>", s_cond_heading))
+            else:
+                elements.append(Paragraph(line, s_cond_body))
         elements.append(Spacer(1, 3*mm))
 
     # ── FOOTER EMPRESA ────────────────────────────────────
