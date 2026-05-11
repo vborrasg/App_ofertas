@@ -159,27 +159,30 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
                 if "ETIX" in familia:
                     # ETIX: la tabla logística manda directamente
                     multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
+                    paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
+                    cantidad_ajustada = paquetes * multiplo_final
 
                 elif "PANEL_AISLANTE" in familia:
-                    # PANEL AISLANTE: corrección por paquetes enteros
-                    # Si bloque/paquete no es entero, redondear abajo
-                    # Ej: 180/25 = 7.2 → floor(7.2)=7 → 7×25 = 175
-                    if pzas_bloque_log > 0 and pzas_paquete > 0:
-                        paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
-                        multiplo_final = paquetes_enteros * pzas_paquete
+                    # PANEL AISLANTE: mínimo = paquetes enteros que caben en bloque
+                    # Después del mínimo, múltiplos de paquete
+                    paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
+                    minimo = paquetes_enteros * pzas_paquete
+                    if cantidad_pedida < minimo:
+                        cantidad_ajustada = minimo
                     else:
-                        multiplo_final = pzas_paquete
+                        cantidad_ajustada = math.ceil(cantidad_pedida / pzas_paquete) * pzas_paquete
+                    multiplo_final = pzas_paquete
 
                 else:
                     # Otras familias: múltiplo de paquete
                     multiplo_final = pzas_paquete
-                
-                paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
-                cantidad_ajustada = paquetes * multiplo_final
-                pzas_paquete = multiplo_final  # Para que la UI muestre el múltiplo correcto
+                    paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
+                    cantidad_ajustada = paquetes * multiplo_final
+
+                pzas_paquete = multiplo_final  # Para que la UI muestre el múltiplo
 
     # ── 14. Transporte (referencia) ───────────────────────────────────────
-    coste_transp_m3, coste_grupaje_m3 = get_coste_transporte(planta_nombre)
+    coste_transp_m3, coste_grupaje_m3, minimo_transporte = get_coste_transporte(planta_nombre)
 
     # ── 15. Total línea ──────────────────────────────────────────────────
     total_linea = precio_pieza_con_scrap * cantidad_ajustada
@@ -241,6 +244,7 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         # Transporte (referencia de planta)
         "TRANSPORTE_M3_PLANTA": round(coste_transp_m3, 2),
         "GRUPAJE_M3_PLANTA": round(coste_grupaje_m3, 2),
+        "MINIMO_TRANSPORTE": round(minimo_transporte, 2),
 
         # Info
         "CODIGO_ARTICULO": "",

@@ -326,23 +326,27 @@ def load_transporte():
     return _query(f"SELECT * FROM {T_TRANSPORTE} ORDER BY PLANTA")
 
 
-def save_transporte(planta, coste_m3, coste_grupaje_m3):
+def save_transporte(planta, coste_m3, coste_grupaje_m3, minimo_transporte=0):
     _exec(f"""
         MERGE INTO {T_TRANSPORTE} t USING (SELECT '{_esc(planta)}' AS PLANTA) s ON t.PLANTA = s.PLANTA
-        WHEN MATCHED THEN UPDATE SET COSTE_M3 = {coste_m3}, COSTE_GRUPAJE_M3 = {coste_grupaje_m3}, UPDATED_AT = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT (PLANTA, COSTE_M3, COSTE_GRUPAJE_M3) VALUES ('{_esc(planta)}', {coste_m3}, {coste_grupaje_m3})
+        WHEN MATCHED THEN UPDATE SET COSTE_M3 = {coste_m3}, COSTE_GRUPAJE_M3 = {coste_grupaje_m3}, MINIMO_TRANSPORTE = {minimo_transporte}, UPDATED_AT = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (PLANTA, COSTE_M3, COSTE_GRUPAJE_M3, MINIMO_TRANSPORTE) VALUES ('{_esc(planta)}', {coste_m3}, {coste_grupaje_m3}, {minimo_transporte})
     """)
     load_transporte.clear()
 
 
 def get_coste_transporte(planta):
-    """Devuelve (coste_m3, coste_grupaje_m3) para una planta."""
+    """Devuelve (coste_m3, coste_grupaje_m3, minimo_transporte) para una planta."""
     df = load_transporte()
     match = df[df["PLANTA"] == planta]
     if match.empty:
-        return (0.0, 0.0)
+        return (0.0, 0.0, 0.0)
     row = match.iloc[0]
-    return (float(row.get("COSTE_M3", 0) or 0), float(row.get("COSTE_GRUPAJE_M3", 0) or 0))
+    return (
+        float(row.get("COSTE_M3", 0) or 0),
+        float(row.get("COSTE_GRUPAJE_M3", 0) or 0),
+        float(row.get("MINIMO_TRANSPORTE", 0) or 0),
+    )
 
 
 # ── MATERIAS PRIMAS ───────────────────────────────────────────────────────────

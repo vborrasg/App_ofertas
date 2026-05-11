@@ -209,26 +209,32 @@ def _section_transporte():
     st.caption("€/m³ por defecto. Si el comercial no introduce un valor en € en la oferta, se aplica este coste.")
 
     df = load_transporte()
+    defaults_min = {"Vilafranca": 110.0, "Valencia": 140.0, "Valladolid": 150.0}
 
     for planta in PLANTAS:
         st.markdown(f"### 🏭 {planta}")
         current_m3 = 0.0
         current_grp = 0.0
+        current_min = defaults_min.get(planta, 0.0)
         if not df.empty:
             match = df[df["PLANTA"] == planta]
             if not match.empty:
                 current_m3 = float(match.iloc[0].get("COSTE_M3", 0) or 0)
                 current_grp = float(match.iloc[0].get("COSTE_GRUPAJE_M3", 0) or 0)
+                current_min = float(match.iloc[0].get("MINIMO_TRANSPORTE", 0) or 0) or defaults_min.get(planta, 0.0)
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             new_m3 = st.number_input(f"Coste €/m³ ({planta})", value=current_m3,
                                      step=0.1, format="%.2f", key=f"tr_{planta}")
         with col2:
             new_grp = st.number_input(f"Grupaje €/m³ ({planta})", value=current_grp,
                                       step=0.1, format="%.2f", key=f"grp_{planta}")
-        if new_m3 != current_m3 or new_grp != current_grp:
-            save_transporte(planta, new_m3, new_grp)
+        with col3:
+            new_min = st.number_input(f"Mínimo € ({planta})", value=current_min,
+                                      step=5.0, format="%.2f", key=f"min_{planta}")
+        if new_m3 != current_m3 or new_grp != current_grp or new_min != current_min:
+            save_transporte(planta, new_m3, new_grp, new_min)
             st.success(f"✅ {planta} actualizado")
 
 

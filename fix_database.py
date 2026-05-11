@@ -30,6 +30,28 @@ def fix():
             except Exception as e:
                 print(f"ℹ️ {col.split()[0]}: ya existe o error menor")
 
+        # ── 1b. Añadir MINIMO_TRANSPORTE a TRANSPORTE ──
+        print("\nActualizando tabla TRANSPORTE...")
+        try:
+            cs.execute("ALTER TABLE TRANSPORTE ADD COLUMN MINIMO_TRANSPORTE FLOAT")
+            print("✅ Columna MINIMO_TRANSPORTE añadida")
+        except Exception as e:
+            print(f"ℹ️ MINIMO_TRANSPORTE: {e}")
+
+        # Valores iniciales (solo si la columna existe)
+        for planta, minimo in [("Vilafranca", 110), ("Valencia", 140), ("Valladolid", 150)]:
+            try:
+                cs.execute(f"""
+                    MERGE INTO TRANSPORTE t USING (SELECT '{planta}' AS PLANTA) s ON t.PLANTA = s.PLANTA
+                    WHEN MATCHED AND (t.MINIMO_TRANSPORTE IS NULL OR t.MINIMO_TRANSPORTE = 0)
+                        THEN UPDATE SET MINIMO_TRANSPORTE = {minimo}
+                    WHEN NOT MATCHED THEN INSERT (PLANTA, COSTE_M3, COSTE_GRUPAJE_M3, MINIMO_TRANSPORTE)
+                        VALUES ('{planta}', 0, 0, {minimo})
+                """)
+                print(f"  ✅ {planta}: mínimo = {minimo}€")
+            except Exception as e:
+                print(f"  ⚠️ {planta}: {e}")
+
         # ── 2. Renombrar familias KNAUF_TECK -> ETIX en TARIFAS ──
         print("\nRenombrando familias en TARIFAS...")
         cs.execute("UPDATE TARIFAS SET FAMILIA = 'ETIX.EPS' WHERE FAMILIA = 'KNAUF_TECK.EPS'")
