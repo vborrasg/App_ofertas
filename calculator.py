@@ -156,15 +156,27 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
             dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
             pzas_paquete, pzas_bloque_log = get_logistica_row(producto_log, dim_str, espesor_pieza)
             if pzas_paquete > 0:
-                # Para ETIX y PANEL_AISLANTE: múltiplos de BLOQUE LOGÍSTICO (de la tabla)
-                # Para otras familias: usamos paquete
-                multiplo_final = pzas_paquete
-                if "ETIX" in familia or "PANEL_AISLANTE" in familia:
+                if "ETIX" in familia:
+                    # ETIX: la tabla logística manda directamente
                     multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
+
+                elif "PANEL_AISLANTE" in familia:
+                    # PANEL AISLANTE: corrección por paquetes enteros
+                    # Si bloque/paquete no es entero, redondear abajo
+                    # Ej: 180/25 = 7.2 → floor(7.2)=7 → 7×25 = 175
+                    if pzas_bloque_log > 0 and pzas_paquete > 0:
+                        paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
+                        multiplo_final = paquetes_enteros * pzas_paquete
+                    else:
+                        multiplo_final = pzas_paquete
+
+                else:
+                    # Otras familias: múltiplo de paquete
+                    multiplo_final = pzas_paquete
                 
                 paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
                 cantidad_ajustada = paquetes * multiplo_final
-                pzas_paquete = multiplo_final # Para que la UI muestre el múltiplo correcto
+                pzas_paquete = multiplo_final  # Para que la UI muestre el múltiplo correcto
 
     # ── 14. Transporte (referencia) ───────────────────────────────────────
     coste_transp_m3, coste_grupaje_m3 = get_coste_transporte(planta_nombre)
