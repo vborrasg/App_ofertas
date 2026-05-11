@@ -9,12 +9,12 @@ def fix():
 
     print("Conectando a Snowflake para reparar tablas...")
     ctx = snowflake.connector.connect(
-        user=config["snowflake"]["user"],
-        password=config["snowflake"]["password"],
-        account=config["snowflake"]["account"],
-        warehouse=config["snowflake"]["warehouse"],
-        database=config["snowflake"]["database"],
-        schema=config["snowflake"]["schema"]
+        user=config["SNOWFLAKE_USER"],
+        password=config["SNOWFLAKE_PASSWORD"],
+        account=config["SNOWFLAKE_ACCOUNT"],
+        warehouse=config["SNOWFLAKE_WAREHOUSE"],
+        database=config["SNOWFLAKE_DATABASE"],
+        schema=config["SNOWFLAKE_SCHEMA"]
     )
     cs = ctx.cursor()
     try:
