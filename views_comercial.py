@@ -65,14 +65,16 @@ def _crear_oferta():
                     if seleccion:
                         cli_row = resultados[resultados["EMPRESA"] == seleccion].iloc[0]
                         cli_data = cli_row.to_dict()
+                        st.caption("✏️ Puedes editar los campos si falta información.")
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.text_input("Empresa", value=cli_data.get("EMPRESA", ""), disabled=True, key="cli_emp")
-                            st.text_input("CIF", value=cli_data.get("CIF", ""), disabled=True, key="cli_cif")
-                            st.text_input("Contacto", value=f"{cli_data.get('CONTACTO_NOMBRE','')} {cli_data.get('CONTACTO_APELLIDO','')}", disabled=True, key="cli_nombre")
+                            cli_data["EMPRESA"] = st.text_input("Empresa", value=cli_data.get("EMPRESA", ""), key="cli_emp")
+                            cli_data["CIF"] = st.text_input("CIF", value=cli_data.get("CIF", ""), key="cli_cif")
+                            cli_data["CONTACTO_NOMBRE"] = st.text_input("Contacto", value=f"{cli_data.get('CONTACTO_NOMBRE','')} {cli_data.get('CONTACTO_APELLIDO','')}".strip(), key="cli_nombre")
+                            cli_data["DIRECCION"] = st.text_input("Dirección", value=cli_data.get("DIRECCION", ""), key="cli_dir")
                         with col2:
-                            st.text_input("Email", value=cli_data.get("EMAIL", ""), disabled=True, key="cli_email")
-                            st.text_input("Teléfono", value=cli_data.get("TELEFONO", ""), disabled=True, key="cli_tel")
+                            cli_data["EMAIL"] = st.text_input("Email", value=cli_data.get("EMAIL", ""), key="cli_email")
+                            cli_data["TELEFONO"] = st.text_input("Teléfono", value=cli_data.get("TELEFONO", cli_data.get("MOVIL", "")), key="cli_tel")
                             st.text_input("Mercado", value=cli_data.get("MERCADO", ""), disabled=True, key="cli_merc")
                 else:
                     st.warning("No se encontraron resultados. Puedes escribir manualmente.")
