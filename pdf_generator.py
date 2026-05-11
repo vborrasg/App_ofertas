@@ -59,12 +59,21 @@ def generar_pdf_oferta(oferta, lineas):
         except Exception:
             pass
 
+    emp_nombre = get_config("empresa_nombre", "KNAUF MIRET, S.L.")
+    emp_dir = get_config("empresa_direccion", "")
+    emp_tel = get_config("empresa_telefono", "")
+
     hdr_data = [
         [logo_element,
          Paragraph(f"<b>N. Oferta:</b> {num}&nbsp;&nbsp;&nbsp;<b>Rev:</b> {rev}", s_normal)],
         ["", Paragraph(f"<b>Fecha:</b> {fecha}", s_normal)],
         ["", Paragraph(f"<b>Comercial:</b> {comercial}", s_normal)],
     ]
+    if emp_dir:
+        hdr_data.append(["", Paragraph(f"<b>Dirección:</b> {emp_dir}", s_normal)])
+    if emp_tel:
+        hdr_data.append(["", Paragraph(f"<b>Teléfono:</b> {emp_tel}", s_normal)])
+
     t_hdr = Table(hdr_data, colWidths=[95*mm, 75*mm])
     t_hdr.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     elements.append(t_hdr)
@@ -156,7 +165,7 @@ def generar_pdf_oferta(oferta, lineas):
         [Paragraph("Subtotal con portes", s_tot_l), Paragraph(f"{subtotal + portes:,.2f} €", s_tot_r)],
         [Paragraph("Impuesto al plástico", s_tot_l), Paragraph(f"{imp_plastico:,.2f} €", s_tot_r)],
     ]
-    if desc_pctg > 0:
+    if desc_pctg > 0 or desc_val > 0:
         tot_data.append([Paragraph(f"Descuento ({desc_pctg:.1f}%)", s_tot_l),
                          Paragraph(f"-{desc_val:,.2f} €", s_tot_r)])
     tot_data.append([Paragraph("<b>Total s/IVA</b>", s_tot_l),
@@ -204,13 +213,15 @@ def generar_pdf_oferta(oferta, lineas):
             fontSize=7, textColor=HexColor("#333333"), spaceAfter=1.5*mm,
             leading=9)
 
-        for raw_line in cond_legales.split("\n"):
+        # Normalizar saltos de línea (la BD puede guardar \n literal)
+        cond_text = cond_legales.replace("\\n", "\n")
+        for raw_line in cond_text.split("\n"):
             line = raw_line.strip()
             if not line:
                 elements.append(Spacer(1, 2*mm))
                 continue
             # Detectar títulos: líneas que empiezan con número + punto/paréntesis, o todo mayúsculas
-            is_title = (len(line) > 2 and (line[0].isdigit() and line[1] in ".-)") or line.isupper())
+            is_title = (len(line) > 2 and ((line[0].isdigit() and line[1] in ".-)") or line.isupper()))
             if is_title:
                 elements.append(Paragraph(f"<b>{line}</b>", s_cond_heading))
             else:

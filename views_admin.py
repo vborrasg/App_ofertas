@@ -321,9 +321,10 @@ def _section_config():
         set_config("condiciones_legales", new_cond)
         st.success("✅ Actualizado")
 
-    st.markdown("### 🏢 Datos empresa (pie PDF)")
+    st.markdown("### 🏢 Datos empresa (cabecera y pie PDF)")
     for key, label in [("empresa_nombre", "Nombre"), ("empresa_direccion", "Dirección"),
-                       ("empresa_cif", "CIF"), ("empresa_registro", "Registro mercantil")]:
+                       ("empresa_telefono", "Teléfono"), ("empresa_cif", "CIF"),
+                       ("empresa_registro", "Registro mercantil")]:
         val = get_config(key, "")
         new_val = st.text_input(label, value=val, key=f"cfg_{key}")
         if new_val != val:
