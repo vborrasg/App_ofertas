@@ -141,6 +141,10 @@ def _crear_oferta():
             with col3:
                 espesor = st.number_input("Espesor", min_value=1, value=50, step=5, key="dim_espesor")
 
+            # Si hay un ajuste pendiente, forzar el nuevo valor eliminando la key del widget
+            if "cant_ajustado" in st.session_state:
+                if "cant_input" in st.session_state:
+                    del st.session_state["cant_input"]
             valor_cantidad = st.session_state.pop("cant_ajustado", 100)
             cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=valor_cantidad, step=1, key="cant_input")
             
