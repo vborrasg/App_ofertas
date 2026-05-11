@@ -342,13 +342,7 @@ def _crear_oferta():
                         
                         # Generar PDF
                         from pdf_generator import generar_pdf_oferta
-                        cliente_pdf = {
-                            "nombre": cli.get("EMPRESA", ""),
-                            "direccion": cli.get("DIRECCION", ""),
-                            "poblacion": cli.get("POBLACION", ""),
-                            "cp": cli.get("CP", "")
-                        }
-                        pdf_bytes = generar_pdf_oferta(cliente_pdf, lineas, portes_total=porte_final)
+                        pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
                         
                         st.download_button(
                             label="⬇️ Descargar PDF de Oferta",
