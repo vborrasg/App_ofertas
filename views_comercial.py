@@ -143,30 +143,26 @@ def _crear_oferta():
 
             cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="cant_input")
             
-            # ── Lógica de sugerencia de múltiplos ──
+            # ── Validar múltiplo logístico ──
             res_preview = calcular_linea(familia, articulo, planta, densidad, largo, ancho, espesor, cantidad, margen, materia)
             cant_ajustada = res_preview.get("CANTIDAD", cantidad)
             
-            if cant_ajustada != cantidad:
+            if "error" not in res_preview and cant_ajustada != cantidad:
                 st.warning(f"💡 Embalaje: La cantidad mínima sugerida es **{cant_ajustada}** piezas (múltiplo logístico).")
                 st.button(
                     f"✅ Ajustar a {cant_ajustada} piezas",
-                    on_click=lambda v=cant_ajustada: st.session_state.update({"cant_input": v}),
+                    on_click=lambda v=cant_ajustada: st.session_state.update(
+                        {"cant_input": v, "ultimo_calculo": None}
+                    ),
                 )
 
             # ── CALCULAR ─────────────────────────────────────────────────
             if st.button("🧮 Calcular", type="primary", key="btn_calc"):
                 resultado = calcular_linea(
-                    familia=familia,
-                    articulo=articulo,
-                    planta_nombre=planta,
-                    densidad=densidad,
-                    largo_pieza=largo,
-                    ancho_pieza=ancho,
-                    espesor_pieza=espesor,
-                    cantidad_pedida=cantidad,
-                    margen_pctg=margen,
-                    materia_prima=materia
+                    familia=familia, articulo=articulo, planta_nombre=planta,
+                    densidad=densidad, largo_pieza=largo, ancho_pieza=ancho,
+                    espesor_pieza=espesor, cantidad_pedida=cantidad,
+                    margen_pctg=margen, materia_prima=materia
                 )
                 if "error" in resultado:
                     st.error(resultado["error"])
@@ -174,7 +170,7 @@ def _crear_oferta():
                     st.session_state["ultimo_calculo"] = resultado
 
             # Mostrar resultado
-            if "ultimo_calculo" in st.session_state:
+            if st.session_state.get("ultimo_calculo"):
                 res = st.session_state["ultimo_calculo"]
                 st.markdown("---")
                 st.markdown("### 📊 Resultado del cálculo")
@@ -194,12 +190,16 @@ def _crear_oferta():
                     st.metric("Scrap", f"{res['SCRAP_PCTG']:.1f}%")
                     st.metric("Margen bruto", f"{res['MARGEN_PCTG']:.1f}%")
 
-                st.caption(res.get("AJUSTE_INFO", ""))
+                # Solo mostrar ajuste si realmente se ajustó
+                ajuste_info = res.get("AJUSTE_INFO", "")
+                if ajuste_info:
+                    st.caption(ajuste_info)
+                    
                 st.metric("💰 Total línea (con scrap)", f"{res['TOTAL_LINEA']:,.2f} €")
 
                 if st.button("➕ Añadir línea a la oferta", key="btn_add_line"):
                     st.session_state.lineas_oferta.append(res)
-                    del st.session_state["ultimo_calculo"]
+                    st.session_state["ultimo_calculo"] = None
                     st.success("✅ Línea añadida")
                     st.rerun()
 
