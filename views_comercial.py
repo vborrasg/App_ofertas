@@ -230,16 +230,23 @@ def _crear_oferta():
                 # Transporte: comercial introduce € absolutos o se calcula por defecto
                 planta_ref = lineas[0].get("PLANTA", "Valencia") if lineas else "Valencia"
                 transp_default_m3 = lineas[0].get("TRANSPORTE_M3_PLANTA", 0) if lineas else 0
+                minimo_transp = lineas[0].get("MINIMO_TRANSPORTE", 0) if lineas else 0
                 porte_default = round(transp_default_m3 * m3_total, 2)
                 st.caption(f"💡 Porte por defecto: {porte_default:.2f}€ ({transp_default_m3:.2f} €/m³ × {m3_total:.4f} m³)")
+                if minimo_transp > 0:
+                    st.caption(f"🚚 Mínimo de transporte {planta_ref}: **{minimo_transp:.0f}€**")
                 porte_manual = st.number_input(
                     "Porte (€) — dejar vacío para usar el por defecto",
                     min_value=0.0, value=0.0, step=10.0,
                     format="%.2f", key="porte_manual",
                     help="Si NO introduces un valor (o dejas 0), se aplica el porte por defecto de la planta."
                 )
-                # Si el comercial no pone nada (0 no vale), se usa el default
+                # Si el comercial no pone nada (0), se usa el default
                 porte_final = porte_manual if porte_manual > 0 else porte_default
+                # Aplicar mínimo de transporte de la planta
+                if minimo_transp > 0 and porte_final < minimo_transp:
+                    st.warning(f"⚠️ Porte ajustado al mínimo de {planta_ref}: **{minimo_transp:.0f}€** (era {porte_final:.2f}€)")
+                    porte_final = minimo_transp
 
             with col2:
                 descuento = st.number_input("Descuento (%)", min_value=0.0, value=0.0,
