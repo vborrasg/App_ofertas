@@ -1,31 +1,51 @@
 """
-views_admin.py — Panel de administración.
+views_admin.py — Panel de administración v2 (KTM integrado).
 """
 import streamlit as st
 import pandas as pd
 from data import (
-    load_precios, save_precios_from_df,
+    load_tarifas, save_tarifas_from_df,
+    load_clientes, save_clientes_from_df,
+    load_transporte, save_transporte,
+    load_materias_primas, save_materia_prima,
     load_logistica, save_logistica_from_df,
-    load_plantas, load_calidades, save_calidades_from_df,
-    load_ofertas, load_oferta_lineas, load_users, save_users_from_df,
-    get_config, set_config, GRUPOS_COMPRA
+    load_plantas, load_ofertas, load_oferta_lineas,
+    load_users, save_users_from_df,
+    get_config, set_config, PLANTAS
 )
 
 
 def render_admin():
     st.sidebar.markdown("### ⚙️ Panel Admin")
     menu = st.sidebar.radio("Sección", [
-        "📋 Todas las Ofertas", "💰 Gestión Precios", "📦 Logística",
-        "🏭 Plantas", "🏷️ Calidades", "👥 Usuarios", "⚙️ Configuración",
+        "📋 Todas las Ofertas",
+        "📊 Tarifas (€/m³)",
+        "🏢 Clientes",
+        "🧪 Materias Primas",
+        "🚚 Transporte",
+        "📦 Logística (Múltiplos)",
+        "🏭 Plantas",
+        "👥 Usuarios",
+        "⚙️ Configuración",
     ])
-    if menu.startswith("📋"):   _section_ofertas()
-    elif menu.startswith("💰"): _section_precios()
-    elif menu.startswith("📦"): _section_logistica()
-    elif menu.startswith("🏭"): _section_plantas()
-    elif menu.startswith("🏷"):  _section_calidades()
-    elif menu.startswith("👥"): _section_usuarios()
-    elif menu.startswith("⚙"):  _section_config()
+    sections = {
+        "📋": _section_ofertas,
+        "📊": _section_tarifas,
+        "🏢": _section_clientes,
+        "🧪": _section_materias_primas,
+        "🚚": _section_transporte,
+        "📦": _section_logistica,
+        "🏭": _section_plantas,
+        "👥": _section_usuarios,
+        "⚙": _section_config,
+    }
+    for key, func in sections.items():
+        if menu.startswith(key):
+            func()
+            break
 
+
+# ── OFERTAS ───────────────────────────────────────────────────────────────────
 
 def _section_ofertas():
     st.markdown("## 📋 Histórico de Ofertas")
@@ -34,26 +54,22 @@ def _section_ofertas():
         st.info("No hay ofertas registradas todavía.")
         return
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         comerciales = ["Todos"] + sorted(df["COMERCIAL"].unique().tolist())
         sel_com = st.selectbox("Comercial", comerciales)
     with col2:
         estados = ["Todos"] + sorted(df["ESTADO"].unique().tolist())
         sel_est = st.selectbox("Estado", estados)
-    with col3:
-        grupos = ["Todos"] + sorted([g for g in df["GRUPO_COMPRA"].unique() if g])
-        sel_grp = st.selectbox("Grupo de compra", grupos)
 
     filtered = df.copy()
     if sel_com != "Todos": filtered = filtered[filtered["COMERCIAL"] == sel_com]
     if sel_est != "Todos": filtered = filtered[filtered["ESTADO"] == sel_est]
-    if sel_grp != "Todos": filtered = filtered[filtered["GRUPO_COMPRA"] == sel_grp]
 
     st.metric("Total ofertas", len(filtered), delta=f"{filtered['TOTAL'].sum():,.2f}€ acumulado")
 
     show_cols = ["NUMERO_OFERTA", "REVISION", "COMERCIAL", "FECHA",
-                 "CLIENTE_NOMBRE", "GRUPO_COMPRA", "TOTAL", "ESTADO"]
+                 "CLIENTE_NOMBRE", "TOTAL", "ESTADO"]
     show_cols = [c for c in show_cols if c in filtered.columns]
     st.dataframe(filtered[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 
@@ -70,43 +86,151 @@ def _section_ofertas():
                 st.dataframe(lineas, use_container_width=True, hide_index=True)
 
 
-def _section_precios():
-    st.markdown("## 💰 Gestión de Precios")
-    st.caption("Sube un Excel con: PRODUCTO, CALIDAD, MINIMO_M3, BIGMAT, GAMMA, DAVSA, EMCCAT, ESTRATEGIAS_BIGMAT, IBRICKS, IDAPLAC")
+# ── TARIFAS ───────────────────────────────────────────────────────────────────
 
-    df_actual = load_precios()
-    if not df_actual.empty:
-        st.markdown("### Precios actuales")
-        st.dataframe(df_actual, use_container_width=True, hide_index=True)
+def _section_tarifas():
+    st.markdown("## 📊 Tarifas (€/m³ por familia, artículo y planta)")
+    st.caption(
+        "Sube un Excel con columnas: FAMILIA, ARTICULO, MATERIA_PRIMA, DENSIDAD, "
+        "LAMBDA, PRECIO_VILAFRANCA, PRECIO_VALENCIA, PRECIO_VALLADOLID"
+    )
 
-    uploaded = st.file_uploader("📁 Subir Excel de precios", type=["xlsx", "xls"], key="upload_precios")
+    df = load_tarifas()
+    if not df.empty:
+        # Filtro por familia
+        familias = ["Todas"] + sorted(df["FAMILIA"].unique().tolist())
+        sel = st.selectbox("Filtrar por familia", familias)
+        show = df if sel == "Todas" else df[df["FAMILIA"] == sel]
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.caption(f"📊 {len(df)} artículos en total")
+
+    uploaded = st.file_uploader("📁 Subir Excel de tarifas", type=["xlsx", "xls"], key="upload_tarifas")
     if uploaded:
         try:
             df_new = pd.read_excel(uploaded)
             df_new.columns = [c.strip().upper().replace(" ", "_") for c in df_new.columns]
-            required = ["PRODUCTO", "CALIDAD", "MINIMO_M3"]
-            if not all(c in df_new.columns for c in required):
-                st.error(f"❌ Faltan columnas: {required}")
+            required = ["FAMILIA", "ARTICULO", "MATERIA_PRIMA", "DENSIDAD"]
+            missing = [c for c in required if c not in df_new.columns]
+            if missing:
+                st.error(f"❌ Faltan columnas: {missing}")
                 return
+            # Asegurar columnas de precio
+            for col in ["PRECIO_VILAFRANCA", "PRECIO_VALENCIA", "PRECIO_VALLADOLID"]:
+                if col not in df_new.columns:
+                    df_new[col] = 0
+            if "LAMBDA" not in df_new.columns:
+                df_new["LAMBDA"] = 0
             st.dataframe(df_new, use_container_width=True, hide_index=True)
-            if st.button("✅ Guardar precios", key="save_precios"):
-                save_precios_from_df(df_new)
-                st.success(f"✅ {len(df_new)} precios actualizados")
+            st.caption(f"📊 {len(df_new)} artículos a importar")
+            if st.button("✅ Guardar tarifas", key="save_tarifas"):
+                save_tarifas_from_df(df_new)
+                st.success(f"✅ {len(df_new)} tarifas actualizadas")
                 st.rerun()
         except Exception as e:
             st.error(f"❌ Error: {e}")
 
-    st.markdown("---")
-    st.markdown("### Incremento clientes sin grupo de compra")
-    inc_actual = float(get_config("incremento_no_grupo", "0") or 0)
-    new_inc = st.number_input("Incremento sobre MÍNIMO M3 (€/m³)", value=inc_actual, step=0.5, format="%.2f")
-    if st.button("Guardar incremento", key="save_inc"):
-        set_config("incremento_no_grupo", str(new_inc))
-        st.success(f"✅ Incremento: +{new_inc}€/m³")
 
+# ── CLIENTES ──────────────────────────────────────────────────────────────────
+
+def _section_clientes():
+    st.markdown("## 🏢 Base de Datos de Clientes")
+    st.caption(
+        "Sube un Excel con columnas: EMPRESA, CIF, CONTACTO_NOMBRE, "
+        "CONTACTO_APELLIDO, EMAIL, TELEFONO, MOVIL, DIRECCION, CP_CIUDAD, "
+        "COMERCIAL_ASIGNADO, MERCADO"
+    )
+
+    df = load_clientes()
+    if not df.empty:
+        busqueda = st.text_input("🔍 Buscar empresa", placeholder="Escribe nombre...")
+        if busqueda:
+            show = df[df["EMPRESA"].str.contains(busqueda.upper(), case=False, na=False)]
+        else:
+            show = df.head(50)
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.caption(f"📊 {len(df)} clientes en total")
+
+    uploaded = st.file_uploader("📁 Subir Excel de clientes", type=["xlsx", "xls"], key="upload_clientes")
+    if uploaded:
+        try:
+            df_new = pd.read_excel(uploaded)
+            st.dataframe(df_new.head(20), use_container_width=True, hide_index=True)
+            st.caption(f"📊 {len(df_new)} clientes a importar")
+            if st.button("✅ Guardar clientes", key="save_clientes"):
+                save_clientes_from_df(df_new)
+                st.success(f"✅ {len(df_new)} clientes importados")
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+
+
+# ── MATERIAS PRIMAS ───────────────────────────────────────────────────────────
+
+def _section_materias_primas():
+    st.markdown("## 🧪 Precios de Materias Primas (€/kg)")
+    st.caption(
+        "Estos son los precios base de cada tipo de EPS. "
+        "El incremento se calcula como: (precio_actual - precio_base_original) × densidad"
+    )
+
+    df = load_materias_primas()
+    if not df.empty:
+        st.dataframe(df[["TIPO", "PRECIO_BASE_KG"]], use_container_width=True, hide_index=True)
+
+    st.markdown("### Actualizar precios")
+    tipos = ["EPS_Blanco", "EPS_Grafito", "EPS_SOSTENIBLES"]
+    labels = {"EPS_Blanco": "EPS Blanco", "EPS_Grafito": "EPS Grafito", "EPS_SOSTENIBLES": "EPS Sostenibles"}
+    defaults = {"EPS_Blanco": 1.45, "EPS_Grafito": 1.75, "EPS_SOSTENIBLES": 3.00}
+
+    for tipo in tipos:
+        current = defaults[tipo]
+        if not df.empty:
+            match = df[df["TIPO"] == tipo]
+            if not match.empty:
+                current = float(match.iloc[0]["PRECIO_BASE_KG"])
+        new_val = st.number_input(
+            f"{labels[tipo]} (€/kg)", value=current, step=0.05,
+            format="%.2f", key=f"mp_{tipo}"
+        )
+        if new_val != current:
+            save_materia_prima(tipo, new_val)
+            st.success(f"✅ {labels[tipo]}: {new_val} €/kg")
+
+
+# ── TRANSPORTE ────────────────────────────────────────────────────────────────
+
+def _section_transporte():
+    st.markdown("## 🚚 Costes de Transporte por Planta")
+    st.caption("€/m³ por defecto. Si el comercial no introduce un valor en € en la oferta, se aplica este coste.")
+
+    df = load_transporte()
+
+    for planta in PLANTAS:
+        st.markdown(f"### 🏭 {planta}")
+        current_m3 = 0.0
+        current_grp = 0.0
+        if not df.empty:
+            match = df[df["PLANTA"] == planta]
+            if not match.empty:
+                current_m3 = float(match.iloc[0].get("COSTE_M3", 0) or 0)
+                current_grp = float(match.iloc[0].get("COSTE_GRUPAJE_M3", 0) or 0)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            new_m3 = st.number_input(f"Coste €/m³ ({planta})", value=current_m3,
+                                     step=0.1, format="%.2f", key=f"tr_{planta}")
+        with col2:
+            new_grp = st.number_input(f"Grupaje €/m³ ({planta})", value=current_grp,
+                                      step=0.1, format="%.2f", key=f"grp_{planta}")
+        if new_m3 != current_m3 or new_grp != current_grp:
+            save_transporte(planta, new_m3, new_grp)
+            st.success(f"✅ {planta} actualizado")
+
+
+# ── LOGÍSTICA (MÚLTIPLOS) ────────────────────────────────────────────────────
 
 def _section_logistica():
-    st.markdown("## 📦 Logística")
+    st.markdown("## 📦 Logística — Múltiplos de Empaquetado")
     st.caption("Sube un Excel con: PRODUCTO, DIMENSION, ESPESOR, PZAS_PAQUETE, PZAS_BLOQUE")
     df = load_logistica()
     if not df.empty:
@@ -129,29 +253,15 @@ def _section_logistica():
             st.error(f"❌ Error: {e}")
 
 
+# ── PLANTAS ───────────────────────────────────────────────────────────────────
+
 def _section_plantas():
     st.markdown("## 🏭 Plantas de Producción")
+    st.caption("Dimensiones máximas de bloque por planta (largo × ancho × grueso en mm)")
     st.dataframe(load_plantas(), use_container_width=True, hide_index=True)
 
 
-def _section_calidades():
-    st.markdown("## 🏷️ Calidades por Producto")
-    df = load_calidades()
-    if not df.empty:
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    uploaded = st.file_uploader("📁 Subir Excel de calidades", type=["xlsx", "xls"], key="upload_cal")
-    if uploaded:
-        try:
-            df_new = pd.read_excel(uploaded)
-            df_new.columns = [c.strip().upper() for c in df_new.columns]
-            st.dataframe(df_new, use_container_width=True, hide_index=True)
-            if st.button("✅ Guardar calidades", key="save_cal"):
-                save_calidades_from_df(df_new)
-                st.success("✅ Calidades actualizadas")
-                st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-
+# ── USUARIOS ──────────────────────────────────────────────────────────────────
 
 def _section_usuarios():
     st.markdown("## 👥 Gestión de Usuarios")
@@ -172,6 +282,8 @@ def _section_usuarios():
         except Exception as e:
             st.error(f"❌ Error: {e}")
 
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
 
 def _section_config():
     st.markdown("## ⚙️ Configuración")

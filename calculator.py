@@ -1,106 +1,252 @@
 """
-calculator.py — Motor de cálculo de precios y cantidades.
+calculator.py — Motor de cálculo KTM replicado con fidelidad de fórmula.
+Todas las fórmulas corresponden 1:1 con las celdas del Excel KTM.
 """
 import math
-from data import get_precio_m3, get_logistica_row, get_planta, load_logistica
+from data import (
+    get_tarifa, get_planta, get_logistica_row, load_logistica,
+    get_coste_transporte, load_materias_primas
+)
 
-PRODUCTOS_ESTANDAR = ["PLANCHA", "SATE"]
-PRODUCTOS_MEDIDA = ["CASETON", "BOVEDILLA", "CILINDROS", "TIRAS"]
-TODOS_PRODUCTOS = PRODUCTOS_ESTANDAR + PRODUCTOS_MEDIDA
+
+# ── Familias con múltiplos logísticos (de los docx) ──────────────────────────
+FAMILIAS_CON_MULTIPLOS = [
+    "PANEL_AISLANTE.EPS", "PANEL_AISLANTE.GRAFITO", "PANEL_AISLANTE.SOSTENIBLES",
+    "BOVEDILLAS.EPS",
+    "ALIGERADOS.EPS",
+    "RECTIBOARD.EPS", "RECTIBOARD.GRAFITO",
+]
 
 
-def calcular_linea_estandar(producto, calidad, dimension, espesor,
-                            cantidad_pedida, grupo_compra, planta_nombre):
-    espesor = float(espesor)
-    cantidad_pedida = int(cantidad_pedida)
-    pzas_paq, pzas_blq = get_logistica_row(producto, dimension, espesor)
-
-    if pzas_paq > 0:
-        cantidad_ajustada = int(math.floor(cantidad_pedida / pzas_paq)) * pzas_paq
+def _redondear_bloque(largo, ancho, grueso, planta):
+    """
+    Replica las fórmulas M4/M5/M6 del KTM:
+    - Vilafranca/Valencia: largo redondea a miles (ROUNDDOWN(,-3)), ancho/grueso a cientos
+    - Valladolid: largo a cientos (ROUNDDOWN(,-2)), ancho/grueso a cientos
+    """
+    if planta == "Valladolid":
+        largo_r = math.floor(largo / 100) * 100
     else:
-        cantidad_ajustada = cantidad_pedida
-    if cantidad_ajustada <= 0 and pzas_paq > 0:
-        cantidad_ajustada = pzas_paq
-
-    largo_mm, ancho_mm = _parse_dimension(dimension)
-    m3_pieza = (largo_mm * ancho_mm * espesor) / 1_000_000_000
-
-    precio_m3 = get_precio_m3(producto, calidad, grupo_compra)
-    precio_unitario = precio_m3 * m3_pieza
-    total = precio_unitario * cantidad_ajustada
-    desc = f"{dimension} x {int(espesor)}mm"
-
-    return {
-        "TIPO_PRODUCTO": producto, "CALIDAD": calidad,
-        "DIMENSION": dimension, "ESPESOR": espesor,
-        "CANTIDAD": cantidad_ajustada, "CANTIDAD_PEDIDA": cantidad_pedida,
-        "PZAS_PAQUETE": pzas_paq, "PZAS_BLOQUE": pzas_blq,
-        "PRECIO_M3": round(precio_m3, 4), "M3_PIEZA": round(m3_pieza, 6),
-        "PRECIO_UNITARIO": round(precio_unitario, 4),
-        "TOTAL_LINEA": round(total, 2),
-        "DESCRIPCION": desc, "CODIGO_ARTICULO": "", "IMPUESTO_PLASTICO": 0,
-        "AJUSTE_INFO": _info_ajuste(cantidad_pedida, cantidad_ajustada, pzas_paq),
-    }
+        largo_r = math.floor(largo / 1000) * 1000
+    ancho_r = math.floor(ancho / 100) * 100
+    grueso_r = math.floor(grueso / 100) * 100
+    return largo_r, ancho_r, grueso_r
 
 
-def calcular_linea_medida(producto, calidad, largo_mm, ancho_mm, alto_mm,
-                          cantidad_pedida, grupo_compra, planta_nombre):
-    largo_mm = float(largo_mm)
-    ancho_mm = float(ancho_mm)
-    alto_mm = float(alto_mm)
+def _get_precio_mp_base(materia_prima):
+    """Obtiene el precio actual de la materia prima (€/kg)."""
+    df = load_materias_primas()
+    if df.empty:
+        return 0.0
+    match = df[df["TIPO"] == materia_prima]
+    if match.empty:
+        return 0.0
+    return float(match.iloc[0].get("PRECIO_BASE_KG", 0) or 0)
+
+
+# Precios base originales (referencia fija del KTM, para calcular el incremento)
+_PRECIOS_BASE_ORIGINALES = {
+    "EPS_Blanco": 1.45,
+    "EPS_Grafito": 1.75,
+    "EPS_SOSTENIBLES": 3.00,
+}
+
+
+def calcular_linea(familia, articulo, planta_nombre, densidad,
+                   largo_pieza, ancho_pieza, espesor_pieza,
+                   cantidad_pedida, margen_pctg=0.0, materia_prima="EPS_Blanco"):
+    """
+    Motor de cálculo KTM — réplica exacta de las fórmulas del Excel.
+    
+    Fórmulas KTM replicadas:
+    - J12: piezas_bloque = INT(L/l) × INT(A/a) × INT(G/e)
+    - N7: m3_piezas_neto = m3_pieza × piezas_bloque
+    - N8: m3_bloque_bruto = (L_bruto × A_bruto × G_bruto) / 1e9
+    - M35: incremento_mp = (precio_actual - precio_base) × densidad
+    - R35: precio_exworks = incremento_mp + tarifa_base_planta
+    - TARIFAS J6: precio_con_margen = tarifa_base × (1 + margen%)
+    - N13: pieza_con_scrap = (m3_bloque × €/m3) / piezas
+    - N14: pieza_sin_scrap = (m3_neto × €/m3) / piezas
+    """
+    largo_pieza = float(largo_pieza)
+    ancho_pieza = float(ancho_pieza)
+    espesor_pieza = float(espesor_pieza)
     cantidad_pedida = int(cantidad_pedida)
+    margen_pctg = float(margen_pctg)
+    densidad = float(densidad)
 
+    # ── 1. Datos de la planta (bloque) ────────────────────────────────────
     planta = get_planta(planta_nombre)
     if planta is None:
         return {"error": f"Planta '{planta_nombre}' no encontrada"}
 
-    largo_max = float(planta["LARGO_MAX"])
-    ancho_max = float(planta["ANCHO_MAX"])
-    grueso_max = float(planta["GRUESO_MAX"])
-    min_m3 = float(planta["MIN_M3"])
+    largo_bloque_raw = float(planta["LARGO_MAX"])
+    ancho_bloque_raw = float(planta["ANCHO_MAX"])
+    grueso_bloque_raw = float(planta["GRUESO_MAX"])
 
-    if not (largo_mm <= largo_max and ancho_mm <= ancho_max and alto_mm <= grueso_max):
-        return {"error": f"❌ NO CABE. Máx bloque: {int(largo_max)}x{int(ancho_max)}x{int(grueso_max)} mm"}
+    # Verificar que la pieza cabe
+    if largo_pieza > largo_bloque_raw or ancho_pieza > ancho_bloque_raw or espesor_pieza > grueso_bloque_raw:
+        return {
+            "error": f"❌ La pieza ({int(largo_pieza)}×{int(ancho_pieza)}×{int(espesor_pieza)}) "
+                     f"NO CABE en bloque ({int(largo_bloque_raw)}×{int(ancho_bloque_raw)}×{int(grueso_bloque_raw)})"
+        }
 
-    pzas_largo = int(largo_max / largo_mm)
-    pzas_ancho = int(ancho_max / ancho_mm)
-    pzas_alto = int(grueso_max / alto_mm)
+    # ── 2. Redondear bloque (KTM: M4/M5/M6) ─────────────────────────────
+    largo_b, ancho_b, grueso_b = _redondear_bloque(
+        largo_bloque_raw, ancho_bloque_raw, grueso_bloque_raw, planta_nombre
+    )
+
+    # ── 3. Piezas por bloque (KTM: J12) ──────────────────────────────────
+    pzas_largo = int(largo_b / largo_pieza)
+    pzas_ancho = int(ancho_b / ancho_pieza)
+    pzas_alto = int(grueso_b / espesor_pieza)
     pzas_bloque = pzas_largo * pzas_ancho * pzas_alto
 
     if pzas_bloque == 0:
-        return {"error": "❌ Las dimensiones no permiten cortar piezas del bloque."}
+        return {"error": "❌ Las dimensiones no permiten cortar piezas del bloque"}
 
-    m3_pieza = (largo_mm * ancho_mm * alto_mm) / 1_000_000_000
-    pzas_min_logistico = math.ceil(min_m3 / m3_pieza) if m3_pieza > 0 else 1
+    # ── 4. Volúmenes (KTM: N7, N8, N9) ───────────────────────────────────
+    m3_pieza = (largo_pieza * ancho_pieza * espesor_pieza) / 1_000_000_000
+    m3_piezas_neto = m3_pieza * pzas_bloque           # N7
+    m3_bloque_bruto = (largo_b * ancho_b * grueso_b) / 1_000_000_000  # N8
 
-    pzas_paq = 0
-    if producto == "BOVEDILLA":
-        pzas_paq, _ = get_logistica_row("BOVEDILLA", "", alto_mm)
+    # ── 5. Scrap % (KTM: J13) ────────────────────────────────────────────
+    scrap_pctg = ((m3_bloque_bruto - m3_piezas_neto) / m3_bloque_bruto * 100
+                  if m3_bloque_bruto > 0 else 0)
 
+    # ── 6. Incremento materia prima (KTM: M35) ───────────────────────────
+    # M35 = (D12 - C12) × F35 = (precio_actual - precio_base_original) × densidad
+    precio_mp_actual = _get_precio_mp_base(materia_prima)
+    precio_mp_original = _PRECIOS_BASE_ORIGINALES.get(materia_prima, precio_mp_actual)
+    incremento_mp = (precio_mp_actual - precio_mp_original) * densidad
+
+    # ── 7. Tarifa base de planta (KTM: N35 = INDEX(TARIFAS...)) ──────────
+    tarifa_base = get_tarifa(familia, articulo, planta_nombre)
+    if tarifa_base <= 0:
+        return {"error": f"❌ No hay tarifa para {familia} / {articulo} en {planta_nombre}"}
+
+    # ── 8. Precio Ex Works €/m³ (KTM: R35 = M35 + N35) ──────────────────
+    precio_exworks_m3 = incremento_mp + tarifa_base
+
+    # ── 9. Aplicar margen bruto (KTM TARIFAS: Jx = Px + (Px × R25)) ─────
+    # El margen se aplica multiplicando: tarifa × (1 + margen%)
+    precio_con_margen_m3 = precio_exworks_m3 * (1 + margen_pctg / 100)
+
+    # ── 10. Precio pieza CON scrap (KTM: N13) ────────────────────────────
+    # N13 = (m3_bloque_bruto × €/m3) / piezas_bloque
+    precio_pieza_con_scrap = (m3_bloque_bruto * precio_con_margen_m3) / pzas_bloque
+
+    # ── 11. Precio pieza SIN scrap (KTM: N14) ────────────────────────────
+    # N14 = (m3_piezas_neto × €/m3) / piezas_bloque  
+    precio_pieza_sin_scrap = (m3_piezas_neto * precio_con_margen_m3) / pzas_bloque
+
+    # ── 12. €/m³ equivalentes (KTM: L13, L14) ────────────────────────────
+    # L13 (con scrap) = (precio_pieza × pzas_bloque) / m3_piezas_neto
+    eur_m3_con_scrap = (precio_pieza_con_scrap * pzas_bloque) / m3_piezas_neto if m3_piezas_neto > 0 else 0
+    # L14 (sin scrap) = precio_exworks × eficiencia  
+    eur_m3_sin_scrap = precio_con_margen_m3
+
+    # ── 13. Ajuste a múltiplos logísticos ─────────────────────────────────
+    pzas_paquete = 0
     cantidad_ajustada = cantidad_pedida
-    if pzas_paq > 0:
-        cantidad_ajustada = int(math.floor(cantidad_pedida / pzas_paq)) * pzas_paq
-        if cantidad_ajustada <= 0:
-            cantidad_ajustada = pzas_paq
 
-    precio_m3 = get_precio_m3(producto, calidad, grupo_compra)
-    precio_unitario = precio_m3 * m3_pieza
-    total = precio_unitario * cantidad_ajustada
-    desc = f"{int(largo_mm)}x{int(ancho_mm)}x{int(alto_mm)}"
+    if familia in FAMILIAS_CON_MULTIPLOS:
+        producto_log = _familia_to_logistica(familia)
+        if producto_log:
+            dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
+            pzas_paquete, _ = get_logistica_row(producto_log, dim_str, espesor_pieza)
+            if pzas_paquete > 0:
+                paquetes = max(1, math.ceil(cantidad_pedida / pzas_paquete))
+                cantidad_ajustada = paquetes * pzas_paquete
+
+    # ── 14. Transporte (referencia) ───────────────────────────────────────
+    coste_transp_m3, coste_grupaje_m3 = get_coste_transporte(planta_nombre)
+
+    # ── 15. Total línea ──────────────────────────────────────────────────
+    total_linea = precio_pieza_con_scrap * cantidad_ajustada
+
+    # ── 16. Descripción ──────────────────────────────────────────────────
+    desc = f"{int(largo_pieza)}×{int(ancho_pieza)}×{int(espesor_pieza)} mm"
 
     return {
-        "TIPO_PRODUCTO": producto, "CALIDAD": calidad,
-        "DIMENSION": desc, "ESPESOR": alto_mm,
-        "CANTIDAD": cantidad_ajustada, "CANTIDAD_PEDIDA": cantidad_pedida,
-        "PZAS_PAQUETE": pzas_paq, "PZAS_BLOQUE": pzas_bloque,
-        "PRECIO_M3": round(precio_m3, 4), "M3_PIEZA": round(m3_pieza, 6),
-        "PRECIO_UNITARIO": round(precio_unitario, 4),
-        "TOTAL_LINEA": round(total, 2),
-        "DESCRIPCION": desc, "CODIGO_ARTICULO": "", "IMPUESTO_PLASTICO": 0,
-        "PZAS_MIN_LOGISTICO": pzas_min_logistico, "CABE": True,
-        "AJUSTE_INFO": _info_ajuste(cantidad_pedida, cantidad_ajustada, pzas_paq),
-        "BLOQUE_INFO": f"{int(largo_max)}x{int(ancho_max)}x{int(grueso_max)} mm → {pzas_bloque} pzas/bloque",
+        "TIPO_PRODUCTO": familia,
+        "CALIDAD": articulo,
+        "MATERIA_PRIMA": materia_prima,
+        "DENSIDAD": densidad,
+        "DESCRIPCION": desc,
+        "PLANTA": planta_nombre,
+        "DIMENSION": desc,
+        "ESPESOR": espesor_pieza,
+
+        # Bloque
+        "BLOQUE_BRUTO": f"{int(largo_bloque_raw)}×{int(ancho_bloque_raw)}×{int(grueso_bloque_raw)}",
+        "BLOQUE_REDONDEADO": f"{int(largo_b)}×{int(ancho_b)}×{int(grueso_b)}",
+
+        # Cantidades
+        "CANTIDAD_PEDIDA": cantidad_pedida,
+        "CANTIDAD": cantidad_ajustada,
+        "PZAS_BLOQUE": pzas_bloque,
+        "PZAS_LARGO": pzas_largo,
+        "PZAS_ANCHO": pzas_ancho,
+        "PZAS_ALTO": pzas_alto,
+        "PZAS_PAQUETE": pzas_paquete,
+
+        # Volúmenes
+        "M3_PIEZA": round(m3_pieza, 6),
+        "M3_PIEZAS_NETO": round(m3_piezas_neto, 6),
+        "M3_BLOQUE_BRUTO": round(m3_bloque_bruto, 6),
+        "SCRAP_PCTG": round(scrap_pctg, 2),
+
+        # Materia prima
+        "INCREMENTO_MP": round(incremento_mp, 4),
+        "PRECIO_MP_ACTUAL": precio_mp_actual,
+        "PRECIO_MP_ORIGINAL": precio_mp_original,
+
+        # Precios €/m³
+        "TARIFA_BASE_PLANTA": round(tarifa_base, 4),
+        "PRECIO_EXWORKS_M3": round(precio_exworks_m3, 4),
+        "MARGEN_PCTG": margen_pctg,
+        "PRECIO_CON_MARGEN_M3": round(precio_con_margen_m3, 4),
+        "EUR_M3_CON_SCRAP": round(eur_m3_con_scrap, 4),
+        "EUR_M3_SIN_SCRAP": round(eur_m3_sin_scrap, 4),
+
+        # Precios por pieza
+        "PRECIO_PIEZA_CON_SCRAP": round(precio_pieza_con_scrap, 4),
+        "PRECIO_PIEZA_SIN_SCRAP": round(precio_pieza_sin_scrap, 4),
+
+        # Para compatibilidad con save_oferta
+        "PRECIO_M3": round(eur_m3_con_scrap, 4),
+        "PRECIO_UNITARIO": round(precio_pieza_con_scrap, 4),
+        "TOTAL_LINEA": round(total_linea, 2),
+
+        # Transporte (referencia de planta)
+        "TRANSPORTE_M3_PLANTA": round(coste_transp_m3, 2),
+        "GRUPAJE_M3_PLANTA": round(coste_grupaje_m3, 2),
+
+        # Info
+        "CODIGO_ARTICULO": "",
+        "IMPUESTO_PLASTICO": 0,
+        "AJUSTE_INFO": _info_ajuste(cantidad_pedida, cantidad_ajustada, pzas_paquete),
+        "BLOQUE_INFO": (
+            f"Bloque {int(largo_b)}×{int(ancho_b)}×{int(grueso_b)} → "
+            f"{pzas_bloque} pzas ({pzas_largo}×{pzas_ancho}×{pzas_alto}) | "
+            f"Scrap: {round(scrap_pctg, 1)}%"
+        ),
     }
+
+
+def _familia_to_logistica(familia):
+    """Mapea familia KTM a producto en tabla LOGISTICA."""
+    mapping = {
+        "PANEL_AISLANTE.EPS": "PLANCHA",
+        "PANEL_AISLANTE.GRAFITO": "PLANCHA",
+        "PANEL_AISLANTE.SOSTENIBLES": "PLANCHA",
+        "BOVEDILLAS.EPS": "BOVEDILLA",
+        "ALIGERADOS.EPS": "CASETON",
+        "RECTIBOARD.EPS": "PLANCHA",
+        "RECTIBOARD.GRAFITO": "PLANCHA",
+    }
+    return mapping.get(familia)
 
 
 def get_dimensiones_disponibles(producto):
@@ -113,16 +259,6 @@ def get_espesores_disponibles(producto, dimension):
     df = load_logistica()
     flt = df[(df["PRODUCTO"] == producto) & (df["DIMENSION"] == dimension)]
     return sorted(flt["ESPESOR"].unique().tolist())
-
-
-def _parse_dimension(dim_str):
-    if not dim_str or "x" not in dim_str.lower():
-        return (0, 0)
-    parts = dim_str.lower().split("x")
-    try:
-        return (float(parts[0]), float(parts[1]))
-    except (ValueError, IndexError):
-        return (0, 0)
 
 
 def _info_ajuste(pedida, ajustada, multiplo):

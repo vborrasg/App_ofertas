@@ -1,5 +1,5 @@
 """
-data.py — Capa de datos Snowflake para App Ofertas.
+data.py — Capa de datos Snowflake para App Ofertas v2 (KTM integrado).
 Usa snowflake-connector-python (mismo patrón que Forecast).
 """
 import streamlit as st
@@ -9,19 +9,56 @@ from datetime import datetime, date
 
 # ── Tablas ────────────────────────────────────────────────────────────────────
 SCHEMA = "OFERTAS_DB.APP"
-T_PRECIOS    = f"{SCHEMA}.PRECIOS"
-T_LOGISTICA  = f"{SCHEMA}.LOGISTICA"
-T_PLANTAS    = f"{SCHEMA}.PLANTAS"
-T_CALIDADES  = f"{SCHEMA}.CALIDADES"
-T_OFERTAS    = f"{SCHEMA}.OFERTAS"
-T_LINEAS     = f"{SCHEMA}.OFERTA_LINEAS"
-T_USUARIOS   = f"{SCHEMA}.USUARIOS"
-T_CONFIG     = f"{SCHEMA}.CONFIG"
+T_TARIFAS     = f"{SCHEMA}.TARIFAS"
+T_CLIENTES    = f"{SCHEMA}.CLIENTES"
+T_TRANSPORTE  = f"{SCHEMA}.TRANSPORTE"
+T_MATERIAS    = f"{SCHEMA}.MATERIAS_PRIMAS"
+T_LOGISTICA   = f"{SCHEMA}.LOGISTICA"
+T_PLANTAS     = f"{SCHEMA}.PLANTAS"
+T_OFERTAS     = f"{SCHEMA}.OFERTAS"
+T_LINEAS      = f"{SCHEMA}.OFERTA_LINEAS"
+T_USUARIOS    = f"{SCHEMA}.USUARIOS"
+T_CONFIG      = f"{SCHEMA}.CONFIG"
 
-GRUPOS_COMPRA = [
-    "MINIMO_M3", "BIGMAT", "GAMMA", "DAVSA",
-    "EMCCAT", "ESTRATEGIAS_BIGMAT", "IBRICKS", "IDAPLAC"
-]
+# Familias de producto del KTM
+FAMILIAS_PRODUCTO = {
+    "BLOQUES": ["BLOQUES.EPS", "BLOQUES.GRAFITO", "BLOQUES.SOSTENIBLES"],
+    "PANELES": ["PANEL_AISLANTE.EPS", "PANEL_AISLANTE.GRAFITO", "PANEL_AISLANTE.SOSTENIBLES"],
+    "ALIGERADOS": ["ALIGERADOS.EPS"],
+    "BOVEDILLAS": ["BOVEDILLAS.EPS"],
+    "PERLA": ["PERLA.EPS"],
+    "LAMINADOS <250mm": [
+        "LAMINADOS_EPS_Menor_250_mm", "LAMINADOS_GRAFITO_Menor_250_mm",
+        "LAMINADOS_SOSTENIBLES_Menor_250_mm"],
+    "LAMINADOS 250-500mm": [
+        "LAMINADOS_EPS_500_A_250_mm", "LAMINADOS_GRAFITO_500_A_250_mm",
+        "LAMINADOS_SOSTENIBLES_500_A_250_mm"],
+    "LAMINADOS 500-1000mm": [
+        "LAMINADOS_EPS_1000_A_500_mm", "LAMINADOS_GRAFITO_1000_A_500_mm",
+        "LAMINADOS_SOSTENIBLES_1000_A_500_mm"],
+    "LAMINADOS >1000mm": [
+        "LAMINADOS_EPS_Mayor_1000_mm", "LAMINADOS_GRAFITO_Mayor_1000_mm",
+        "LAMINADOS_SOSTENIBLES_Mayor_1000_mm"],
+    "MECANIZADOS <250mm": [
+        "MECANIZADOS_EPS_Menor_250_mm", "MECANIZADOS_GRAFITO_Menor_250_mm",
+        "MECANIZADOS_SOSTENIBLES_Menor_250_mm"],
+    "MECANIZADOS 250-500mm": [
+        "MECANIZADOS_EPS_500_A_250_mm", "MECANIZADOS_GRAFITO_500_A_250_mm",
+        "MECANIZADOS_SOSTENIBLES_500_A_250_mm"],
+    "MECANIZADOS 500-1000mm": [
+        "MECANIZADOS_EPS_1000_A_500_mm", "MECANIZADOS_GRAFITO_1000_A_500_mm",
+        "MECANIZADOS_SOSTENIBLES_1000_A_500_mm"],
+    "MECANIZADOS >1000mm": [
+        "MECANIZADOS_EPS_Mayor_1000_mm", "MECANIZADOS_GRAFITO_Mayor_1000_mm",
+        "MECANIZADOS_SOSTENIBLES_Mayor_1000_mm"],
+    "RECTIBOARD": ["RECTIBOARD.EPS", "RECTIBOARD.GRAFITO"],
+    "KNAUF TECK": ["KNAUF_TECK.EPS"],
+    "ETIX": ["ETIX.GRAFITO"],
+}
+
+TIPOS_MATERIA_PRIMA = ["EPS_Blanco", "EPS_Grafito", "EPS_SOSTENIBLES"]
+
+PLANTAS = ["Vilafranca", "Valencia", "Valladolid"]
 
 
 # ── Conexión Snowflake ────────────────────────────────────────────────────────
@@ -83,6 +120,8 @@ def _exec(sql):
 
 def _esc(val):
     """Escapa comillas simples para SQL."""
+    if val is None:
+        return ""
     return str(val).replace("'", "''")
 
 
@@ -148,7 +187,6 @@ def save_users_from_df(df_users):
     if batch:
         _exec(f"INSERT INTO {T_USUARIOS} (EMAIL, PASSWORD, NOMBRE, ROL) VALUES {', '.join(batch)}")
 
-    # Mantener admin
     _exec(f"""
         INSERT INTO {T_USUARIOS} (EMAIL, PASSWORD, NOMBRE, ROL)
         SELECT 'vbrrsg@gmail.com','Albope5@','Victor Borrás','admin'
@@ -157,47 +195,170 @@ def save_users_from_df(df_users):
     load_users.clear()
 
 
-# ── PRECIOS ───────────────────────────────────────────────────────────────────
+# ── TARIFAS ───────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner=False)
-def load_precios():
-    return _query(f"SELECT * FROM {T_PRECIOS} ORDER BY PRODUCTO, CALIDAD")
+@st.cache_data(ttl=120, show_spinner=False)
+def load_tarifas():
+    return _query(f"SELECT * FROM {T_TARIFAS} ORDER BY FAMILIA, DENSIDAD")
 
 
-def save_precios_from_df(df):
-    _exec(f"TRUNCATE TABLE {T_PRECIOS}")
+def save_tarifas_from_df(df):
+    """Reemplaza todas las tarifas desde un DataFrame."""
+    _exec(f"TRUNCATE TABLE {T_TARIFAS}")
     batch = []
     for _, r in df.iterrows():
-        vals = (
-            f"'{_esc(r['PRODUCTO'])}', '{_esc(r['CALIDAD'])}', "
-            f"{r.get('MINIMO_M3',0) or 0}, {r.get('BIGMAT',0) or 0}, "
-            f"{r.get('GAMMA',0) or 0}, {r.get('DAVSA',0) or 0}, "
-            f"{r.get('EMCCAT',0) or 0}, {r.get('ESTRATEGIAS_BIGMAT',0) or 0}, "
-            f"{r.get('IBRICKS',0) or 0}, {r.get('IDAPLAC',0) or 0}"
+        familia = _esc(r.get("FAMILIA", ""))
+        articulo = _esc(r.get("ARTICULO", ""))
+        mp = _esc(r.get("MATERIA_PRIMA", ""))
+        dens = r.get("DENSIDAD", 0) or 0
+        lam = r.get("LAMBDA", 0) or 0
+        pv = r.get("PRECIO_VILAFRANCA", 0) or 0
+        pva = r.get("PRECIO_VALENCIA", 0) or 0
+        pvl = r.get("PRECIO_VALLADOLID", 0) or 0
+        batch.append(
+            f"('{familia}', '{articulo}', '{mp}', {dens}, {lam}, {pv}, {pva}, {pvl}, CURRENT_TIMESTAMP())"
         )
-        batch.append(f"({vals})")
         if len(batch) >= 100:
-            _exec(f"INSERT INTO {T_PRECIOS} VALUES {', '.join(batch)}")
+            _exec(f"""INSERT INTO {T_TARIFAS}
+                (FAMILIA, ARTICULO, MATERIA_PRIMA, DENSIDAD, LAMBDA,
+                 PRECIO_VILAFRANCA, PRECIO_VALENCIA, PRECIO_VALLADOLID, UPDATED_AT)
+                VALUES {', '.join(batch)}""")
             batch = []
     if batch:
-        _exec(f"INSERT INTO {T_PRECIOS} VALUES {', '.join(batch)}")
-    load_precios.clear()
+        _exec(f"""INSERT INTO {T_TARIFAS}
+            (FAMILIA, ARTICULO, MATERIA_PRIMA, DENSIDAD, LAMBDA,
+             PRECIO_VILAFRANCA, PRECIO_VALENCIA, PRECIO_VALLADOLID, UPDATED_AT)
+            VALUES {', '.join(batch)}""")
+    load_tarifas.clear()
 
 
-def get_precio_m3(producto, calidad, grupo_compra):
-    df = load_precios()
-    match = df[(df["PRODUCTO"] == producto) & (df["CALIDAD"] == calidad)]
+def get_tarifa(familia, articulo, planta):
+    """Devuelve precio €/m³ para una familia+artículo+planta."""
+    df = load_tarifas()
+    match = df[(df["FAMILIA"] == familia) & (df["ARTICULO"] == articulo)]
     if match.empty:
         return 0.0
     row = match.iloc[0]
-    col = grupo_compra.upper().replace(" ", "_") if grupo_compra else "MINIMO_M3"
-    if col not in row.index:
-        col = "MINIMO_M3"
-    precio = float(row[col]) if row[col] else 0.0
-    if col == "MINIMO_M3":
-        inc = float(get_config("incremento_no_grupo", "0") or 0)
-        precio += inc
-    return precio
+    col_map = {
+        "Vilafranca": "PRECIO_VILAFRANCA",
+        "Valencia": "PRECIO_VALENCIA",
+        "Valladolid": "PRECIO_VALLADOLID",
+    }
+    col = col_map.get(planta, "PRECIO_VILAFRANCA")
+    return float(row.get(col, 0) or 0)
+
+
+def get_articulos_familia(familia):
+    """Devuelve lista de artículos disponibles para una familia."""
+    df = load_tarifas()
+    arts = df[df["FAMILIA"] == familia]["ARTICULO"].unique().tolist()
+    return sorted(arts)
+
+
+def get_densidades_familia(familia):
+    """Devuelve densidades disponibles para una familia."""
+    df = load_tarifas()
+    return sorted(df[df["FAMILIA"] == familia]["DENSIDAD"].unique().tolist())
+
+
+def get_familias_por_materia(materia_prima):
+    """Devuelve familias disponibles para un tipo de materia prima."""
+    df = load_tarifas()
+    return sorted(df[df["MATERIA_PRIMA"] == materia_prima]["FAMILIA"].unique().tolist())
+
+
+# ── CLIENTES ──────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_clientes():
+    return _query(f"SELECT * FROM {T_CLIENTES} ORDER BY EMPRESA")
+
+
+def save_clientes_from_df(df):
+    """Reemplaza clientes desde un DataFrame de Excel."""
+    _exec(f"TRUNCATE TABLE {T_CLIENTES}")
+    batch = []
+    for _, r in df.iterrows():
+        empresa = _esc(r.get("EMPRESA", r.get("Empresa", r.get("empresa", ""))))
+        if not empresa or empresa == "nan":
+            continue
+        cif = _esc(r.get("CIF", r.get("Cif", "")))
+        nombre = _esc(r.get("CONTACTO_NOMBRE", r.get("Nombre", r.get("NOMBRE", ""))))
+        apellido = _esc(r.get("CONTACTO_APELLIDO", r.get("Apellido", r.get("APELLIDO", ""))))
+        email = _esc(r.get("EMAIL", r.get("Email", r.get("email", ""))))
+        tel = _esc(r.get("TELEFONO", r.get("Telefono", "")))
+        movil = _esc(r.get("MOVIL", r.get("Movil", "")))
+        direccion = _esc(r.get("DIRECCION", r.get("Direccion", "")))
+        cp = _esc(r.get("CP_CIUDAD", r.get("CP", "")))
+        comercial = _esc(r.get("COMERCIAL_ASIGNADO", r.get("Comercial", "")))
+        mercado = _esc(r.get("MERCADO", r.get("Mercado", "")))
+        batch.append(
+            f"('{empresa}', '{cif}', '{nombre}', '{apellido}', '{email}', "
+            f"'{tel}', '{movil}', '{direccion}', '{cp}', '{comercial}', '{mercado}', CURRENT_TIMESTAMP())"
+        )
+        if len(batch) >= 100:
+            _exec(f"""INSERT INTO {T_CLIENTES}
+                (EMPRESA, CIF, CONTACTO_NOMBRE, CONTACTO_APELLIDO, EMAIL,
+                 TELEFONO, MOVIL, DIRECCION, CP_CIUDAD, COMERCIAL_ASIGNADO, MERCADO, UPDATED_AT)
+                VALUES {', '.join(batch)}""")
+            batch = []
+    if batch:
+        _exec(f"""INSERT INTO {T_CLIENTES}
+            (EMPRESA, CIF, CONTACTO_NOMBRE, CONTACTO_APELLIDO, EMAIL,
+             TELEFONO, MOVIL, DIRECCION, CP_CIUDAD, COMERCIAL_ASIGNADO, MERCADO, UPDATED_AT)
+            VALUES {', '.join(batch)}""")
+    load_clientes.clear()
+
+
+def buscar_cliente(texto):
+    """Busca clientes por nombre de empresa (parcial)."""
+    df = load_clientes()
+    if df.empty:
+        return pd.DataFrame()
+    mask = df["EMPRESA"].str.contains(texto.upper(), case=False, na=False)
+    return df[mask].head(20)
+
+
+# ── TRANSPORTE ────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_transporte():
+    return _query(f"SELECT * FROM {T_TRANSPORTE} ORDER BY PLANTA")
+
+
+def save_transporte(planta, coste_m3, coste_grupaje_m3):
+    _exec(f"""
+        MERGE INTO {T_TRANSPORTE} t USING (SELECT '{_esc(planta)}' AS PLANTA) s ON t.PLANTA = s.PLANTA
+        WHEN MATCHED THEN UPDATE SET COSTE_M3 = {coste_m3}, COSTE_GRUPAJE_M3 = {coste_grupaje_m3}, UPDATED_AT = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (PLANTA, COSTE_M3, COSTE_GRUPAJE_M3) VALUES ('{_esc(planta)}', {coste_m3}, {coste_grupaje_m3})
+    """)
+    load_transporte.clear()
+
+
+def get_coste_transporte(planta):
+    """Devuelve (coste_m3, coste_grupaje_m3) para una planta."""
+    df = load_transporte()
+    match = df[df["PLANTA"] == planta]
+    if match.empty:
+        return (0.0, 0.0)
+    row = match.iloc[0]
+    return (float(row.get("COSTE_M3", 0) or 0), float(row.get("COSTE_GRUPAJE_M3", 0) or 0))
+
+
+# ── MATERIAS PRIMAS ───────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_materias_primas():
+    return _query(f"SELECT * FROM {T_MATERIAS} ORDER BY TIPO")
+
+
+def save_materia_prima(tipo, precio_kg):
+    _exec(f"""
+        MERGE INTO {T_MATERIAS} t USING (SELECT '{_esc(tipo)}' AS TIPO) s ON t.TIPO = s.TIPO
+        WHEN MATCHED THEN UPDATE SET PRECIO_BASE_KG = {precio_kg}, UPDATED_AT = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (TIPO, PRECIO_BASE_KG) VALUES ('{_esc(tipo)}', {precio_kg})
+    """)
+    load_materias_primas.clear()
 
 
 # ── LOGISTICA ─────────────────────────────────────────────────────────────────
@@ -250,31 +411,6 @@ def get_planta(nombre):
     if match.empty:
         return None
     return match.iloc[0].to_dict()
-
-
-# ── CALIDADES ─────────────────────────────────────────────────────────────────
-
-@st.cache_data(ttl=60, show_spinner=False)
-def load_calidades():
-    return _query(f"SELECT * FROM {T_CALIDADES} ORDER BY PRODUCTO, CALIDAD")
-
-
-def get_calidades_producto(producto):
-    df = load_calidades()
-    return sorted(df[df["PRODUCTO"] == producto]["CALIDAD"].unique().tolist())
-
-
-def save_calidades_from_df(df):
-    _exec(f"TRUNCATE TABLE {T_CALIDADES}")
-    batch = []
-    for _, r in df.iterrows():
-        batch.append(f"('{_esc(r['PRODUCTO'])}', '{_esc(r['CALIDAD'])}')")
-        if len(batch) >= 100:
-            _exec(f"INSERT INTO {T_CALIDADES} VALUES {', '.join(batch)}")
-            batch = []
-    if batch:
-        _exec(f"INSERT INTO {T_CALIDADES} VALUES {', '.join(batch)}")
-    load_calidades.clear()
 
 
 # ── OFERTAS ───────────────────────────────────────────────────────────────────
