@@ -154,13 +154,13 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         producto_log = _familia_to_logistica(familia)
         if producto_log:
             dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
-            pzas_paquete, _ = get_logistica_row(producto_log, dim_str, espesor_pieza)
+            pzas_paquete, pzas_bloque_log = get_logistica_row(producto_log, dim_str, espesor_pieza)
             if pzas_paquete > 0:
-                # Si es ETIX, forzamos múltiplos de BLOQUE (pzas_bloque)
+                # Si es ETIX, forzamos múltiplos de BLOQUE LOGÍSTICO (de la tabla)
                 # Si es otra cosa, usamos paquete
                 multiplo_final = pzas_paquete
                 if "ETIX" in familia:
-                    multiplo_final = pzas_bloque if pzas_bloque > 0 else pzas_paquete
+                    multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
                 
                 paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
                 cantidad_ajustada = paquetes * multiplo_final
