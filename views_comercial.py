@@ -276,8 +276,14 @@ def _crear_oferta():
                 st.caption(f"Descuento aplicado: -{descuento_valor:,.2f}€ ({descuento}%)")
 
             st.markdown("---")
-            st.markdown("### 📝 Observaciones")
-            observaciones = st.text_area("Notas para la oferta", key="obs_oferta")
+            st.markdown("### 📝 Condiciones y observaciones")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                fecha_validez = st.date_input("📅 Fecha de validez de la oferta", key="fecha_validez")
+                cond_pago = st.text_input("💳 Condiciones de pago", placeholder="Ej: 30 días fecha factura", key="cond_pago")
+            with col_c2:
+                cond_transporte = st.text_input("🚚 Condiciones de transporte", placeholder="Ej: Portes pagados, destino...", key="cond_transporte")
+                observaciones = st.text_area("📋 Observaciones", key="obs_oferta")
 
             # ── BLOQUE DE GENERACIÓN DE OFERTA ──
             st.markdown("---")
@@ -317,6 +323,7 @@ def _crear_oferta():
                         "NUMERO_OFERTA": numero,
                         "REVISION": 0,
                         "FECHA": datetime.now().strftime("%Y-%m-%d"),
+                        "FECHA_VALIDEZ": fecha_validez.strftime("%Y-%m-%d"),
                         "COMERCIAL": email_com,
                         "COMERCIAL_NOMBRE": comercial,
                         "CLIENTE_NOMBRE": cli.get("EMPRESA", ""),
@@ -328,9 +335,11 @@ def _crear_oferta():
                         "SUBTOTAL": round(subtotal, 2),
                         "PORTES": round(porte_final, 2),
                         "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
-                        "DESCUENTO_PCTG": 0, # Por ahora 0
-                        "DESCUENTO_VALOR": 0,
+                        "DESCUENTO_PCTG": round(descuento, 1),
+                        "DESCUENTO_VALOR": round(descuento_valor, 2),
                         "TOTAL": round(total_final, 2),
+                        "CONDICIONES_PAGO": cond_pago,
+                        "CONDICIONES_TRANSPORTE": cond_transporte,
                         "OBSERVACIONES": observaciones,
                         "ESTADO": "Borrador",
                     }

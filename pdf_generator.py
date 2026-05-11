@@ -63,10 +63,14 @@ def generar_pdf_oferta(oferta, lineas):
     emp_dir = get_config("empresa_direccion", "")
     emp_tel = get_config("empresa_telefono", "")
 
+    fecha_validez = oferta.get("FECHA_VALIDEZ", "")
+    if hasattr(fecha_validez, "strftime"):
+        fecha_validez = fecha_validez.strftime("%d/%m/%Y")
+
     hdr_data = [
         [logo_element,
          Paragraph(f"<b>N. Oferta:</b> {num}&nbsp;&nbsp;&nbsp;<b>Rev:</b> {rev}", s_normal)],
-        ["", Paragraph(f"<b>Fecha:</b> {fecha}", s_normal)],
+        ["", Paragraph(f"<b>Fecha:</b> {fecha}&nbsp;&nbsp;&nbsp;<b>Validez:</b> {fecha_validez}", s_normal)],
         ["", Paragraph(f"<b>Comercial:</b> {comercial}", s_normal)],
     ]
     if emp_dir:
@@ -190,10 +194,32 @@ def generar_pdf_oferta(oferta, lineas):
         "imp_note", parent=styles["Normal"], fontSize=6, textColor=HexColor("#666666"))))
     elements.append(Spacer(1, 5*mm))
 
-    # ── OBSERVACIONES ─────────────────────────────────────
+    # ── CONDICIONES COMERCIALES ───────────────────────────
+    cond_pago = oferta.get("CONDICIONES_PAGO", "")
+    cond_transp = oferta.get("CONDICIONES_TRANSPORTE", "")
     obs = oferta.get("OBSERVACIONES", "")
-    if obs:
-        elements.append(Paragraph(f"<b>OBSERVACIONES:</b> {obs}", s_normal))
+
+    s_cond_label = ParagraphStyle("cond_label", parent=styles["Normal"],
+        fontSize=8, textColor=AZUL)
+
+    if cond_pago or cond_transp or obs:
+        cond_rows = []
+        if cond_pago:
+            cond_rows.append([Paragraph("<b>Condiciones de pago:</b>", s_cond_label),
+                              Paragraph(cond_pago, s_normal)])
+        if cond_transp:
+            cond_rows.append([Paragraph("<b>Condiciones de transporte:</b>", s_cond_label),
+                              Paragraph(cond_transp, s_normal)])
+        if obs:
+            cond_rows.append([Paragraph("<b>Observaciones:</b>", s_cond_label),
+                              Paragraph(obs, s_normal)])
+        t_cond = Table(cond_rows, colWidths=[55*mm, 110*mm])
+        t_cond.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(t_cond)
         elements.append(Spacer(1, 3*mm))
 
     # ── CONDICIONES LEGALES (nueva página) ──────────────────
