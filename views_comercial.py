@@ -141,12 +141,7 @@ def _crear_oferta():
             with col3:
                 espesor = st.number_input("Espesor", min_value=1, value=50, step=5, key="dim_espesor")
 
-            # Si hay un ajuste pendiente, forzar el nuevo valor eliminando la key del widget
-            if "cant_ajustado" in st.session_state:
-                if "cant_input" in st.session_state:
-                    del st.session_state["cant_input"]
-            valor_cantidad = st.session_state.pop("cant_ajustado", 100)
-            cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=valor_cantidad, step=1, key="cant_input")
+            cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="cant_input")
             
             # ── Lógica de sugerencia de múltiplos ──
             res_preview = calcular_linea(familia, articulo, planta, densidad, largo, ancho, espesor, cantidad, margen, materia)
@@ -154,14 +149,10 @@ def _crear_oferta():
             
             if cant_ajustada != cantidad:
                 st.warning(f"💡 Embalaje: La cantidad mínima sugerida es **{cant_ajustada}** piezas (múltiplo logístico).")
-                st.session_state["cantidad_sugerida"] = cant_ajustada
-
-            # Botón de ajuste (usa valor guardado en session_state)
-            if "cantidad_sugerida" in st.session_state and st.session_state.get("cantidad_sugerida", 0) != cantidad:
-                sugerida = st.session_state["cantidad_sugerida"]
-                if st.button(f"✅ Ajustar a {sugerida} piezas"):
-                    st.session_state["cant_ajustado"] = sugerida
-                    st.rerun()
+                st.button(
+                    f"✅ Ajustar a {cant_ajustada} piezas",
+                    on_click=lambda v=cant_ajustada: st.session_state.update({"cant_input": v}),
+                )
 
             # ── CALCULAR ─────────────────────────────────────────────────
             if st.button("🧮 Calcular", type="primary", key="btn_calc"):
