@@ -201,7 +201,7 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         # Volúmenes
         "M3_PIEZA": round(m3_pieza, 6),
         "M3_PIEZAS_NETO": round(m3_piezas_neto, 6),
-        "M3_BLOQUE_BRUTO": round(m3_bloque_bruto, 6),
+        "M3_BLOQUE_BRUTO": round(vol_bloque_fab, 6),
         "SCRAP_PCTG": round(scrap_pctg, 2),
 
         # Materia prima
@@ -211,9 +211,9 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
 
         # Precios €/m³
         "TARIFA_BASE_PLANTA": round(tarifa_base, 4),
-        "PRECIO_EXWORKS_M3": round(precio_exworks_m3, 4),
+        "PRECIO_EXWORKS_M3": round(precio_exworks_m3_neto, 4),
         "MARGEN_PCTG": margen_pctg,
-        "PRECIO_CON_MARGEN_M3": round(precio_con_margen_m3, 4),
+        "PRECIO_CON_MARGEN_M3": round(precio_exworks_m3_neto, 4),
         "EUR_M3_CON_SCRAP": round(eur_m3_con_scrap, 4),
         "EUR_M3_SIN_SCRAP": round(eur_m3_sin_scrap, 4),
 
