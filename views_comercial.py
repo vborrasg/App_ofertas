@@ -353,5 +353,3 @@ def _crear_oferta():
 
                     # Limpiar
                     st.session_state.lineas_oferta = []
-                except Exception as e:
-                    st.error(f"❌ Error al guardar: {e}")
