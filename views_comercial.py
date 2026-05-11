@@ -352,59 +352,78 @@ def _crear_oferta():
 
             # ── GENERAR OFERTA ────────────────────────────────────────────
             if st.button("📄 Generar PDF de Oferta", type="primary", disabled=bloqueo_pdf, use_container_width=True):
-                cli = st.session_state.get("cliente_datos", {})
-                if not cli.get("EMPRESA"):
-                    st.error("❌ Introduce los datos del cliente primero")
-                else:
-                    from datetime import datetime
-                    from data import save_oferta, next_oferta_number
-                    
-                    numero = next_oferta_number()
-                    comercial = st.session_state.get("user_name", "Comercial")
-                    email_com = st.session_state.get("user_email", "")
+                    # Leer datos del cliente desde session state (widgets)
+                    cli = st.session_state.get("cliente_datos", {})
+                    # Sobreescribir con valores actuales de los widgets (por si el expander se colapsó)
+                    if st.session_state.get("modo_cliente", "").startswith("✏️"):
+                        cli = {
+                            "EMPRESA": st.session_state.get("man_emp", cli.get("EMPRESA", "")),
+                            "CIF": st.session_state.get("man_cif", cli.get("CIF", "")),
+                            "CONTACTO_NOMBRE": st.session_state.get("man_cont", cli.get("CONTACTO_NOMBRE", "")),
+                            "EMAIL": st.session_state.get("man_email", cli.get("EMAIL", "")),
+                            "TELEFONO": st.session_state.get("man_tel", cli.get("TELEFONO", "")),
+                            "DIRECCION": st.session_state.get("man_dir", cli.get("DIRECCION", "")),
+                        }
+                    elif st.session_state.get("modo_cliente", "").startswith("🔍"):
+                        cli["EMPRESA"] = st.session_state.get("cli_emp", cli.get("EMPRESA", ""))
+                        cli["CIF"] = st.session_state.get("cli_cif", cli.get("CIF", ""))
+                        cli["CONTACTO_NOMBRE"] = st.session_state.get("cli_nombre", cli.get("CONTACTO_NOMBRE", ""))
+                        cli["EMAIL"] = st.session_state.get("cli_email", cli.get("EMAIL", ""))
+                        cli["TELEFONO"] = st.session_state.get("cli_tel", cli.get("TELEFONO", ""))
+                        cli["DIRECCION"] = st.session_state.get("cli_dir", cli.get("DIRECCION", ""))
 
-                    oferta_dict = {
-                        "NUMERO_OFERTA": numero,
-                        "REVISION": 0,
-                        "FECHA": datetime.now().strftime("%Y-%m-%d"),
-                        "FECHA_VALIDEZ": fecha_validez.strftime("%Y-%m-%d"),
-                        "COMERCIAL": email_com,
-                        "COMERCIAL_NOMBRE": comercial,
-                        "CLIENTE_NOMBRE": cli.get("EMPRESA", ""),
-                        "CLIENTE_CIF": cli.get("CIF", ""),
-                        "CLIENTE_CONTACTO": cli.get("CONTACTO_NOMBRE", ""),
-                        "CLIENTE_EMAIL": cli.get("EMAIL", ""),
-                        "CLIENTE_TELEFONO": cli.get("TELEFONO", ""),
-                        "CLIENTE_DIRECCION": cli.get("DIRECCION", ""),
-                        "SUBTOTAL": round(subtotal, 2),
-                        "PORTES": round(porte_final, 2),
-                        "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
-                        "DESCUENTO_PCTG": round(descuento, 1),
-                        "DESCUENTO_VALOR": round(descuento_valor, 2),
-                        "TOTAL": round(total_final, 2),
-                        "CONDICIONES_PAGO": cond_pago,
-                        "CONDICIONES_TRANSPORTE": cond_transporte,
-                        "OBSERVACIONES": observaciones,
-                        "ESTADO": "Borrador",
-                    }
-
-                    df_lineas_save = pd.DataFrame(lineas)
-                    try:
-                        oferta_id = save_oferta(oferta_dict, df_lineas_save)
-                        st.success(f"✅ Oferta {numero} guardada correctamente")
+                    if not cli.get("EMPRESA"):
+                        st.error("❌ Introduce los datos del cliente primero")
+                    else:
+                        from datetime import datetime
+                        from data import save_oferta, next_oferta_number
                         
-                        # Generar PDF
-                        from pdf_generator import generar_pdf_oferta
-                        pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
-                        
-                        st.download_button(
-                            label="⬇️ Descargar PDF de Oferta",
-                            data=pdf_bytes,
-                            file_name=f"Oferta_{numero}_{cli.get('EMPRESA','')}.pdf",
-                            mime="application/pdf"
-                        )
-                    except Exception as e:
-                        st.warning(f"⚠️ PDF no generado: {e}")
+                        numero = next_oferta_number()
+                        comercial = st.session_state.get("user_name", "Comercial")
+                        email_com = st.session_state.get("user_email", "")
 
-                    # Limpiar
-                    st.session_state.lineas_oferta = []
+                        oferta_dict = {
+                            "NUMERO_OFERTA": numero,
+                            "REVISION": 0,
+                            "FECHA": datetime.now().strftime("%Y-%m-%d"),
+                            "FECHA_VALIDEZ": fecha_validez.strftime("%Y-%m-%d"),
+                            "COMERCIAL": email_com,
+                            "COMERCIAL_NOMBRE": comercial,
+                            "CLIENTE_NOMBRE": cli.get("EMPRESA", ""),
+                            "CLIENTE_CIF": cli.get("CIF", ""),
+                            "CLIENTE_CONTACTO": cli.get("CONTACTO_NOMBRE", ""),
+                            "CLIENTE_EMAIL": cli.get("EMAIL", ""),
+                            "CLIENTE_TELEFONO": cli.get("TELEFONO", ""),
+                            "CLIENTE_DIRECCION": cli.get("DIRECCION", ""),
+                            "SUBTOTAL": round(subtotal, 2),
+                            "PORTES": round(porte_final, 2),
+                            "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
+                            "DESCUENTO_PCTG": round(descuento, 1),
+                            "DESCUENTO_VALOR": round(descuento_valor, 2),
+                            "TOTAL": round(total_final, 2),
+                            "CONDICIONES_PAGO": cond_pago,
+                            "CONDICIONES_TRANSPORTE": cond_transporte,
+                            "OBSERVACIONES": observaciones,
+                            "ESTADO": "Borrador",
+                        }
+
+                        df_lineas_save = pd.DataFrame(lineas)
+                        try:
+                            oferta_id = save_oferta(oferta_dict, df_lineas_save)
+                            st.success(f"✅ Oferta {numero} guardada correctamente")
+                            
+                            # Generar PDF
+                            from pdf_generator import generar_pdf_oferta
+                            pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
+                            
+                            st.download_button(
+                                label="⬇️ Descargar PDF de Oferta",
+                                data=pdf_bytes,
+                                file_name=f"Oferta_{numero}_{cli.get('EMPRESA','')}.pdf",
+                                mime="application/pdf"
+                            )
+                        except Exception as e:
+                            st.warning(f"⚠️ PDF no generado: {e}")
+
+                        # Limpiar
+                        st.session_state.lineas_oferta = []
