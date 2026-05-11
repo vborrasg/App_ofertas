@@ -12,6 +12,7 @@ from data import (
 # ── Familias con múltiplos logísticos (de los docx) ──────────────────────────
 FAMILIAS_CON_MULTIPLOS = [
     "PANEL_AISLANTE.EPS", "PANEL_AISLANTE.GRAFITO", "PANEL_AISLANTE.SOSTENIBLES",
+    "ETIX.EPS", "ETIX.GRAFITO", "ETIX.SOSTENIBLES",
     "BOVEDILLAS.EPS",
     "ALIGERADOS.EPS",
     "RECTIBOARD.EPS", "RECTIBOARD.GRAFITO",
@@ -75,11 +76,16 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     margen_pctg = float(margen_pctg)
     densidad = float(densidad)
 
-    # ── 1. Dimensiones de Bloque (Corte vs Fabricación) ──────────────────
-    # Según KTM: Cobramos el volumen del bloque de fabricación (bruto real), 
-    # pero calculamos cuántas piezas caben sobre el bloque de corte (neto saneado).
-    
-    # Vilafranca (Ejemplo SATE): Fabricación: 6110 x 1215 x 1050 | Corte: 6000 x 1200 x 1000
+    # ── 1. Datos de la planta y Bloque (Corte vs Fabricación) ─────────────
+    planta = get_planta(planta_nombre)
+    if planta is None:
+        return {"error": f"Planta '{planta_nombre}' no encontrada"}
+
+    largo_bloque_raw = float(planta["LARGO_MAX"])
+    ancho_bloque_raw = float(planta["ANCHO_MAX"])
+    grueso_bloque_raw = float(planta["GRUESO_MAX"])
+
+    # Vilafranca (Ejemplo ETIX): Fabricación: 6110 x 1215 x 1050 | Corte: 6000 x 1200 x 1000
     if planta_nombre == "Valladolid":
         l_fab, w_fab, h_fab = 5080, 1250, 530
     elif planta_nombre == "Valencia":
@@ -150,8 +156,15 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
             dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
             pzas_paquete, _ = get_logistica_row(producto_log, dim_str, espesor_pieza)
             if pzas_paquete > 0:
-                paquetes = max(1, math.ceil(cantidad_pedida / pzas_paquete))
-                cantidad_ajustada = paquetes * pzas_paquete
+                # Si es ETIX, forzamos múltiplos de BLOQUE (pzas_bloque)
+                # Si es otra cosa, usamos paquete
+                multiplo_final = pzas_paquete
+                if "ETIX" in familia:
+                    multiplo_final = pzas_bloque if pzas_bloque > 0 else pzas_paquete
+                
+                paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
+                cantidad_ajustada = paquetes * multiplo_final
+                pzas_paquete = multiplo_final # Para que la UI muestre el múltiplo correcto
 
     # ── 14. Transporte (referencia) ───────────────────────────────────────
     coste_transp_m3, coste_grupaje_m3 = get_coste_transporte(planta_nombre)
@@ -235,6 +248,9 @@ def _familia_to_logistica(familia):
         "PANEL_AISLANTE.EPS": "PLANCHA",
         "PANEL_AISLANTE.GRAFITO": "PLANCHA",
         "PANEL_AISLANTE.SOSTENIBLES": "PLANCHA",
+        "ETIX.EPS": "PLANCHA",
+        "ETIX.GRAFITO": "PLANCHA",
+        "ETIX.SOSTENIBLES": "PLANCHA",
         "BOVEDILLAS.EPS": "BOVEDILLA",
         "ALIGERADOS.EPS": "CASETON",
         "RECTIBOARD.EPS": "PLANCHA",

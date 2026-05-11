@@ -141,7 +141,17 @@ def _crear_oferta():
             with col3:
                 espesor = st.number_input("Espesor", min_value=1, value=50, step=5, key="dim_espesor")
 
-            cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="dim_cant")
+            cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="cant_input")
+            
+            # ── Lógica de sugerencia de múltiplos ──
+            res_preview = calcular_linea(familia, articulo, planta, densidad, largo, ancho, espesor, cantidad, margen, materia)
+            cant_ajustada = res_preview.get("CANTIDAD", cantidad)
+            
+            if cant_ajustada != cantidad:
+                st.warning(f"💡 Embalaje: La cantidad mínima sugerida es **{cant_ajustada}** piezas.")
+                if st.button(f"✅ Ajustar a {cant_ajustada} piezas"):
+                    st.session_state.cant_input = cant_ajustada
+                    st.rerun()
 
             # ── CALCULAR ─────────────────────────────────────────────────
             if st.button("🧮 Calcular", type="primary", key="btn_calc"):
@@ -261,51 +271,81 @@ def _crear_oferta():
             st.markdown("### 📝 Observaciones")
             observaciones = st.text_area("Notas para la oferta", key="obs_oferta")
 
+            # ── BLOQUE DE GENERACIÓN DE OFERTA ──
+            st.markdown("---")
+            st.subheader("📝 Finalizar Oferta")
+            
+            # Calcular total global
+            total_oferta = subtotal
+            total_con_portes = total_final
+            
+            col_t1, col_t2 = st.columns(2)
+            col_t1.metric("Total Material (Ex Works)", f"{total_oferta:,.2f} €")
+            col_t2.metric("Total con Portes/Impuestos", f"{total_con_portes:,.2f} €")
+            
+            # Validación pedido mínimo 500€
+            bloqueo_pdf = False
+            if total_con_portes < 500:
+                st.warning("⚠️ **AVISO DE PEDIDO MÍNIMO**: Esta oferta es inferior a **500€** (sin IVA).")
+                verificado_minimo = st.checkbox("✅ He verificado y acepto que el importe es inferior a 500€")
+                if not verificado_minimo:
+                    bloqueo_pdf = True
+                    st.info("Debes marcar el check de verificación para poder generar el PDF.")
+
             # ── GENERAR OFERTA ────────────────────────────────────────────
-            if st.button("📄 Generar Oferta PDF", type="primary", key="btn_generar"):
+            if st.button("📄 Generar PDF de Oferta", type="primary", disabled=bloqueo_pdf, use_container_width=True):
                 cli = st.session_state.get("cliente_datos", {})
                 if not cli.get("EMPRESA"):
                     st.error("❌ Introduce los datos del cliente primero")
-                    return
+                else:
+                    from datetime import datetime
+                    from data import save_oferta, next_oferta_number
+                    
+                    numero = next_oferta_number()
+                    comercial = st.session_state.get("user_name", "Comercial")
+                    email_com = st.session_state.get("user_email", "")
 
-                numero = next_oferta_number()
-                comercial = st.session_state.get("user_name", "Comercial")
-                email_com = st.session_state.get("user_email", "")
+                    oferta_dict = {
+                        "NUMERO_OFERTA": numero,
+                        "REVISION": 0,
+                        "FECHA": datetime.now().strftime("%Y-%m-%d"),
+                        "COMERCIAL": email_com,
+                        "COMERCIAL_NOMBRE": comercial,
+                        "CLIENTE_NOMBRE": cli.get("EMPRESA", ""),
+                        "CLIENTE_CIF": cli.get("CIF", ""),
+                        "CLIENTE_CONTACTO": cli.get("CONTACTO_NOMBRE", ""),
+                        "CLIENTE_EMAIL": cli.get("EMAIL", ""),
+                        "CLIENTE_TELEFONO": cli.get("TELEFONO", ""),
+                        "CLIENTE_DIRECCION": cli.get("DIRECCION", ""),
+                        "SUBTOTAL": round(subtotal, 2),
+                        "PORTES": round(porte_final, 2),
+                        "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
+                        "DESCUENTO_PCTG": 0, # Por ahora 0
+                        "DESCUENTO_VALOR": 0,
+                        "TOTAL": round(total_final, 2),
+                        "OBSERVACIONES": observaciones,
+                        "ESTADO": "Borrador",
+                    }
 
-                oferta_dict = {
-                    "NUMERO_OFERTA": numero,
-                    "REVISION": 0,
-                    "FECHA": datetime.now().strftime("%Y-%m-%d"),
-                    "COMERCIAL": email_com,
-                    "COMERCIAL_NOMBRE": comercial,
-                    "CLIENTE_NOMBRE": cli.get("EMPRESA", ""),
-                    "CLIENTE_CIF": cli.get("CIF", ""),
-                    "CLIENTE_CONTACTO": cli.get("CONTACTO_NOMBRE", ""),
-                    "CLIENTE_EMAIL": cli.get("EMAIL", ""),
-                    "CLIENTE_TELEFONO": cli.get("TELEFONO", ""),
-                    "CLIENTE_DIRECCION": cli.get("DIRECCION", ""),
-                    "SUBTOTAL": round(subtotal, 2),
-                    "PORTES": round(porte_final, 2),
-                    "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
-                    "DESCUENTO_PCTG": descuento,
-                    "DESCUENTO_VALOR": round(descuento_valor, 2),
-                    "TOTAL": round(total_final, 2),
-                    "OBSERVACIONES": observaciones,
-                    "ESTADO": "Borrador",
-                }
-
-                df_lineas_save = pd.DataFrame(lineas)
-                try:
-                    oferta_id = save_oferta(oferta_dict, df_lineas_save)
-                    st.success(f"✅ Oferta **{numero}** guardada (ID: {oferta_id})")
-
-                    # Generar PDF
+                    df_lineas_save = pd.DataFrame(lineas)
                     try:
-                        pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
+                        oferta_id = save_oferta(oferta_dict, df_lineas_save)
+                        st.success(f"✅ Oferta {numero} guardada correctamente")
+                        
+                        # Generar PDF
+                        from pdf_generator import generar_pdf_oferta
+                        cliente_pdf = {
+                            "nombre": cli.get("EMPRESA", ""),
+                            "direccion": cli.get("DIRECCION", ""),
+                            "poblacion": cli.get("POBLACION", ""),
+                            "cp": cli.get("CP", "")
+                        }
+                        pdf_bytes = generar_pdf_oferta(cliente_pdf, lineas, portes_total=porte_final)
+                        
                         st.download_button(
-                            "📥 Descargar PDF",
+                            label="⬇️ Descargar PDF de Oferta",
                             data=pdf_bytes,
-                            file_name=f"{numero}.pdf",
+                            file_name=f"Oferta_{numero}_{cli.get('EMPRESA','')}.pdf",
                             mime="application/pdf"
                         )
                     except Exception as e:
