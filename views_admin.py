@@ -167,17 +167,22 @@ def _section_clientes():
 # ── MATERIAS PRIMAS ───────────────────────────────────────────────────────────
 
 def _section_materias_primas():
-    st.markdown("## 🧪 Precios de Materias Primas (€/kg)")
+    st.markdown("## 🧪 Precios Actuales de Materia Prima (€/kg)")
+    st.info(
+        "**Referencia KTM:** El sistema calcula el sobrecoste comparando tus precios actuales "
+        "contra los valores base del KTM: **1.45€** (Blanco), **1.75€** (Grafito) y **3.00€** (Sostenible)."
+    )
     st.caption(
-        "Estos son los precios base de cada tipo de EPS. "
-        "El incremento se calcula como: (precio_actual - precio_base_original) × densidad"
+        "Introduce aquí los precios reales de este mes. El incremento se calculará automáticamente "
+        "como: (Precio Actual - Precio Referencia) × Densidad."
     )
 
     df = load_materias_primas()
     if not df.empty:
-        st.dataframe(df[["TIPO", "PRECIO_BASE_KG"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["TIPO", "PRECIO_BASE_KG"]].rename(columns={"PRECIO_BASE_KG": "PRECIO_ACTUAL_KG"}), 
+                     use_container_width=True, hide_index=True)
 
-    st.markdown("### Actualizar precios")
+    st.markdown("### ✏️ Actualizar Precios del Mes")
     tipos = ["EPS_Blanco", "EPS_Grafito", "EPS_SOSTENIBLES"]
     labels = {"EPS_Blanco": "EPS Blanco", "EPS_Grafito": "EPS Grafito", "EPS_SOSTENIBLES": "EPS Sostenibles"}
     defaults = {"EPS_Blanco": 1.45, "EPS_Grafito": 1.75, "EPS_SOSTENIBLES": 3.00}
@@ -189,12 +194,12 @@ def _section_materias_primas():
             if not match.empty:
                 current = float(match.iloc[0]["PRECIO_BASE_KG"])
         new_val = st.number_input(
-            f"{labels[tipo]} (€/kg)", value=current, step=0.05,
+            f"Precio ACTUAL {labels[tipo]} (€/kg)", value=current, step=0.05,
             format="%.2f", key=f"mp_{tipo}"
         )
         if new_val != current:
             save_materia_prima(tipo, new_val)
-            st.success(f"✅ {labels[tipo]}: {new_val} €/kg")
+            st.success(f"✅ {labels[tipo]} actualizado a {new_val} €/kg")
 
 
 # ── TRANSPORTE ────────────────────────────────────────────────────────────────

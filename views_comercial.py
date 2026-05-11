@@ -102,6 +102,12 @@ def _crear_oferta():
             materia = st.selectbox("🧪 Materia Prima", TIPOS_MATERIA_PRIMA,
                                    format_func=lambda x: x.replace("_", " "),
                                    key="sel_materia")
+            
+            # Mostrar el precio actual para información del comercial
+            mps = load_materias_primas()
+            if not mps.empty:
+                val_mp = mps[mps["TIPO"] == materia]["PRECIO_BASE_KG"].iloc[0]
+                st.caption(f"💰 Precio actual: **{val_mp:.2f} €/kg**")
         with col3:
             # Margen bruto con mínimo 15%
             margen = st.number_input("📈 Margen bruto (%)", min_value=15.0,
