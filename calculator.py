@@ -75,28 +75,27 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     margen_pctg = float(margen_pctg)
     densidad = float(densidad)
 
-    # ── 1. Datos de la planta (bloque) ────────────────────────────────────
-    planta = get_planta(planta_nombre)
-    if planta is None:
-        return {"error": f"Planta '{planta_nombre}' no encontrada"}
+    # ── 1. Dimensiones de Bloque (Corte vs Fabricación) ──────────────────
+    # Según KTM: Cobramos el volumen del bloque de fabricación (bruto real), 
+    # pero calculamos cuántas piezas caben sobre el bloque de corte (neto saneado).
+    
+    # Vilafranca (Ejemplo SATE): Fabricación: 6110 x 1215 x 1050 | Corte: 6000 x 1200 x 1000
+    if planta_nombre == "Valladolid":
+        l_fab, w_fab, h_fab = 5080, 1250, 530
+    elif planta_nombre == "Valencia":
+        l_fab, w_fab, h_fab = 4040, 1220, 1030
+    else: # Vilafranca / Otros
+        l_fab, w_fab, h_fab = 6110, 1215, 1050
 
-    largo_bloque_raw = float(planta["LARGO_MAX"])
-    ancho_bloque_raw = float(planta["ANCHO_MAX"])
-    grueso_bloque_raw = float(planta["GRUESO_MAX"])
+    vol_bloque_fab = (l_fab * w_fab * h_fab) / 1_000_000_000
 
-    # Verificar que la pieza cabe
-    if largo_pieza > largo_bloque_raw or ancho_pieza > ancho_bloque_raw or espesor_pieza > grueso_bloque_raw:
-        return {
-            "error": f"❌ La pieza ({int(largo_pieza)}×{int(ancho_pieza)}×{int(espesor_pieza)}) "
-                     f"NO CABE en bloque ({int(largo_bloque_raw)}×{int(ancho_bloque_raw)}×{int(grueso_bloque_raw)})"
-        }
-
-    # ── 2. Redondear bloque (KTM: M4/M5/M6) ─────────────────────────────
+    # ── 2. Redondear bloque para CORTE (KTM: M4/M5/M6) ──────────────────
     largo_b, ancho_b, grueso_b = _redondear_bloque(
         largo_bloque_raw, ancho_bloque_raw, grueso_bloque_raw, planta_nombre
     )
+    vol_bloque_net = (largo_b * ancho_b * grueso_b) / 1_000_000_000
 
-    # ── 3. Piezas por bloque (KTM: J12) ──────────────────────────────────
+    # ── 3. Piezas por bloque (KTM: J12) sobre el bloque de CORTE ────────
     pzas_largo = int(largo_b / largo_pieza)
     pzas_ancho = int(ancho_b / ancho_pieza)
     pzas_alto = int(grueso_b / espesor_pieza)
@@ -107,44 +106,39 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
 
     # ── 4. Volúmenes (KTM: N7, N8, N9) ───────────────────────────────────
     m3_pieza = (largo_pieza * ancho_pieza * espesor_pieza) / 1_000_000_000
-    m3_piezas_neto = m3_pieza * pzas_bloque           # N7
-    m3_bloque_bruto = (largo_b * ancho_b * grueso_b) / 1_000_000_000  # N8
-
+    m3_piezas_neto = m3_pieza * pzas_bloque           # N7 (Total piezas)
+    
     # ── 5. Scrap % (KTM: J13) ────────────────────────────────────────────
-    scrap_pctg = ((m3_bloque_bruto - m3_piezas_neto) / m3_bloque_bruto * 100
-                  if m3_bloque_bruto > 0 else 0)
+    # Basado en el bloque de CORTE (6000x1200...)
+    scrap_ratio = (vol_bloque_net - m3_piezas_neto) / vol_bloque_net if vol_bloque_net > 0 else 0
+    scrap_pctg = scrap_ratio * 100
 
     # ── 6. Incremento materia prima (KTM: M35) ───────────────────────────
-    # M35 = (D12 - C12) × F35 = (precio_actual - precio_base_original) × densidad
     precio_mp_actual = _get_precio_mp_base(materia_prima)
     precio_mp_original = _PRECIOS_BASE_ORIGINALES.get(materia_prima, precio_mp_actual)
     incremento_mp = (precio_mp_actual - precio_mp_original) * densidad
 
-    # ── 7. Tarifa base de planta (KTM: N35 = INDEX(TARIFAS...)) ──────────
+    # ── 7. Tarifa base de planta (KTM: N35) ─────────────────────────────
     tarifa_base = get_tarifa(familia, articulo, planta_nombre)
     if tarifa_base <= 0:
         return {"error": f"❌ No hay tarifa para {familia} / {articulo} en {planta_nombre}"}
 
-    # ── 8. Precio Ex Works €/m³ (KTM: R35 = M35 + N35) ──────────────────
-    precio_exworks_m3 = incremento_mp + tarifa_base
+    # ── 8. Precio Ex Works €/m³ y Margen ───────────────────────────────
+    precio_exworks_m3_neto = (incremento_mp + tarifa_base) * (1 + margen_pctg / 100)
 
-    # ── 9. Aplicar margen bruto (KTM TARIFAS: Jx = Px + (Px × R25)) ─────
-    # El margen se aplica multiplicando: tarifa × (1 + margen%)
-    precio_con_margen_m3 = precio_exworks_m3 * (1 + margen_pctg / 100)
+    # ── 9. Aplicación de Merma y Seguridad (Metodología KTM) ───────────
+    # KTM: El precio se encarece por la merma (dividiendo por 1-scrap)
+    # y por la diferencia entre el bloque que se fabrica (fab) y el que se corta (net).
+    factor_seguridad = vol_bloque_fab / vol_bloque_net
+    
+    # Precio €/m³ CON Scrap real
+    eur_m3_con_scrap = (precio_exworks_m3_neto / (1 - scrap_ratio)) * factor_seguridad
+    eur_m3_sin_scrap = precio_exworks_m3_neto * factor_seguridad
 
-    # ── 10. Precio pieza CON scrap (KTM: N13) ────────────────────────────
-    # N13 = (m3_bloque_bruto × €/m3) / piezas_bloque
-    precio_pieza_con_scrap = (m3_bloque_bruto * precio_con_margen_m3) / pzas_bloque
-
-    # ── 11. Precio pieza SIN scrap (KTM: N14) ────────────────────────────
-    # N14 = (m3_piezas_neto × €/m3) / piezas_bloque  
-    precio_pieza_sin_scrap = (m3_piezas_neto * precio_con_margen_m3) / pzas_bloque
-
-    # ── 12. €/m³ equivalentes (KTM: L13, L14) ────────────────────────────
-    # L13 (con scrap) = (precio_pieza × pzas_bloque) / m3_piezas_neto
-    eur_m3_con_scrap = (precio_pieza_con_scrap * pzas_bloque) / m3_piezas_neto if m3_piezas_neto > 0 else 0
-    # L14 (sin scrap) = precio_exworks × eficiencia  
-    eur_m3_sin_scrap = precio_con_margen_m3
+    # ── 10. Precio por Pieza (KTM: N13) ──────────────────────────────────
+    # N13 = (m3_bloque_fabricacion × €/m3_base) / piezas_bloque
+    precio_pieza_con_scrap = (vol_bloque_fab * precio_exworks_m3_neto) / (pzas_bloque * (1 - scrap_ratio))
+    precio_pieza_sin_scrap = m3_pieza * eur_m3_sin_scrap
 
     # ── 13. Ajuste a múltiplos logísticos ─────────────────────────────────
     pzas_paquete = 0
@@ -228,7 +222,7 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         "IMPUESTO_PLASTICO": 0,
         "AJUSTE_INFO": _info_ajuste(cantidad_pedida, cantidad_ajustada, pzas_paquete),
         "BLOQUE_INFO": (
-            f"Bloque {int(largo_b)}×{int(ancho_b)}×{int(grueso_b)} → "
+            f"Bloque Fab {int(l_fab)}×{int(w_fab)}×{int(h_fab)} / Corte {int(largo_b)}×{int(ancho_b)}×{int(grueso_b)} → "
             f"{pzas_bloque} pzas ({pzas_largo}×{pzas_ancho}×{pzas_alto}) | "
             f"Scrap: {round(scrap_pctg, 1)}%"
         ),
