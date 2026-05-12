@@ -41,12 +41,23 @@ def generar_pdf_oferta(oferta, lineas):
                               alignment=TA_CENTER)
 
     # ── CABECERA CON LOGO ────────────────────────────────────────
-    num = oferta.get("NUMERO_OFERTA", "")
-    rev = oferta.get("REVISION", 0)
+    def safe_str(val, default=""):
+        """Convierte cualquier valor (float, None, NaN) a string limpio."""
+        if val is None:
+            return default
+        s = str(val)
+        if s in ("nan", "None", "NaT"):
+            return default
+        return s
+
+    num = safe_str(oferta.get("NUMERO_OFERTA", ""))
+    rev = safe_str(oferta.get("REVISION", 0))
     fecha = oferta.get("FECHA", "")
     if hasattr(fecha, "strftime"):
         fecha = fecha.strftime("%d/%m/%Y")
-    comercial = oferta.get("COMERCIAL_NOMBRE", oferta.get("COMERCIAL", ""))
+    else:
+        fecha = safe_str(fecha)
+    comercial = safe_str(oferta.get("COMERCIAL_NOMBRE", oferta.get("COMERCIAL", "")))
 
     # Logo
     logo_element = Paragraph("<b>KNAUF INDUSTRIES</b>", s_title)
@@ -66,6 +77,8 @@ def generar_pdf_oferta(oferta, lineas):
     fecha_validez = oferta.get("FECHA_VALIDEZ", "")
     if hasattr(fecha_validez, "strftime"):
         fecha_validez = fecha_validez.strftime("%d/%m/%Y")
+    else:
+        fecha_validez = safe_str(fecha_validez)
 
     hdr_data = [
         [logo_element,
@@ -91,12 +104,12 @@ def generar_pdf_oferta(oferta, lineas):
     elements.append(Spacer(1, 1*mm))
 
     cl_data = [
-        [Paragraph(f"<b>Empresa:</b> {oferta.get('CLIENTE_NOMBRE','')}", s_small),
-         Paragraph(f"<b>Contacto:</b> {oferta.get('CLIENTE_CONTACTO','')}", s_small)],
-        [Paragraph(f"<b>CIF/NIF:</b> {oferta.get('CLIENTE_CIF','')}", s_small),
-         Paragraph(f"<b>Teléfono:</b> {oferta.get('CLIENTE_TELEFONO','')}", s_small)],
-        [Paragraph(f"<b>Dirección:</b> {oferta.get('CLIENTE_DIRECCION','')}", s_small),
-         Paragraph(f"<b>Email:</b> {oferta.get('CLIENTE_EMAIL','')}", s_small)],
+        [Paragraph(f"<b>Empresa:</b> {safe_str(oferta.get('CLIENTE_NOMBRE',''))}", s_small),
+         Paragraph(f"<b>Contacto:</b> {safe_str(oferta.get('CLIENTE_CONTACTO',''))}", s_small)],
+        [Paragraph(f"<b>CIF/NIF:</b> {safe_str(oferta.get('CLIENTE_CIF',''))}", s_small),
+         Paragraph(f"<b>Teléfono:</b> {safe_str(oferta.get('CLIENTE_TELEFONO',''))}", s_small)],
+        [Paragraph(f"<b>Dirección:</b> {safe_str(oferta.get('CLIENTE_DIRECCION',''))}", s_small),
+         Paragraph(f"<b>Email:</b> {safe_str(oferta.get('CLIENTE_EMAIL',''))}", s_small)],
     ]
     t_cl = Table(cl_data, colWidths=[90*mm, 75*mm])
     t_cl.setStyle(TableStyle([
@@ -195,9 +208,9 @@ def generar_pdf_oferta(oferta, lineas):
     elements.append(Spacer(1, 5*mm))
 
     # ── CONDICIONES COMERCIALES ───────────────────────────
-    cond_pago = oferta.get("CONDICIONES_PAGO", "")
-    cond_transp = oferta.get("CONDICIONES_TRANSPORTE", "")
-    obs = oferta.get("OBSERVACIONES", "")
+    cond_pago = safe_str(oferta.get("CONDICIONES_PAGO", ""))
+    cond_transp = safe_str(oferta.get("CONDICIONES_TRANSPORTE", ""))
+    obs = safe_str(oferta.get("OBSERVACIONES", ""))
 
     s_cond_label = ParagraphStyle("cond_label", parent=styles["Normal"],
         fontSize=8, textColor=AZUL)
@@ -223,7 +236,7 @@ def generar_pdf_oferta(oferta, lineas):
         elements.append(Spacer(1, 3*mm))
 
     # ── CONDICIONES LEGALES (nueva página) ──────────────────
-    cond_legales = get_config("condiciones_legales", "")
+    cond_legales = str(get_config("condiciones_legales", "") or "")
     if cond_legales:
         from reportlab.platypus import PageBreak
         elements.append(PageBreak())
