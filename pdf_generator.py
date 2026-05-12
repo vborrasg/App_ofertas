@@ -132,15 +132,19 @@ def generar_pdf_oferta(oferta, lineas):
 
     for ln in lineas:
         if isinstance(ln, dict):
+            # PRECIO_M3 y PRECIO_UNITARIO son los campos canónicos (ya ajustados SIN/CON scrap)
+            precio_m3 = float(ln.get('PRECIO_M3', ln.get('EUR_M3_CON_SCRAP', 0)) or 0)
+            precio_pza = float(ln.get('PRECIO_UNITARIO', ln.get('PRECIO_PIEZA_CON_SCRAP', 0)) or 0)
+            total_linea = float(ln.get('TOTAL_LINEA', 0) or 0)
             row = [
                 Paragraph(str(ln.get("TIPO_PRODUCTO", ""))[:20], s_small),
                 Paragraph(str(ln.get("CALIDAD", ""))[:25], s_small),
                 Paragraph(str(ln.get("DESCRIPCION", "")), s_small),
                 Paragraph(str(ln.get("PLANTA", "")), s_small),
                 Paragraph(str(int(ln.get("CANTIDAD", 0))), s_small),
-                Paragraph(f"{ln.get('EUR_M3_CON_SCRAP', ln.get('PRECIO_M3', 0)):.2f}", s_small),
-                Paragraph(f"{ln.get('PRECIO_PIEZA_CON_SCRAP', ln.get('PRECIO_UNITARIO', 0)):.4f}", s_small),
-                Paragraph(f"{ln.get('TOTAL_LINEA', 0):,.2f}", s_small),
+                Paragraph(f"{precio_m3:.2f}", s_small),
+                Paragraph(f"{precio_pza:.4f}", s_small),
+                Paragraph(f"{total_linea:,.2f}", s_small),
             ]
             prod_data.append(row)
 
