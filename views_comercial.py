@@ -446,6 +446,14 @@ def _crear_oferta():
                             "ESTADO": estado_oferta,
                         }
 
+                        # Si es SIN Scrap, actualizar precios de cada línea
+                        if es_sin_scrap:
+                            for i, l in enumerate(lineas):
+                                precio_sin = l.get("PRECIO_PIEZA_SIN_SCRAP", l.get("PRECIO_PIEZA_CON_SCRAP", 0))
+                                lineas[i]["PRECIO_PIEZA_CON_SCRAP"] = precio_sin
+                                lineas[i]["PRECIO_UNITARIO"] = precio_sin
+                                lineas[i]["TOTAL_LINEA"] = precio_sin * l.get("CANTIDAD", 0)
+
                         df_lineas_save = pd.DataFrame(lineas)
                         try:
                             oferta_id = save_oferta(oferta_dict, df_lineas_save)
