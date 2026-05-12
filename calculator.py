@@ -110,7 +110,10 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
 
     # ── 6. Incremento materia prima (KTM: M35) ───────────────────────────
     precio_mp_actual = _get_precio_mp_base(materia_prima)
-    precio_mp_original = _PRECIOS_BASE_ORIGINALES.get(materia_prima, precio_mp_actual)
+    # KTM: Todas las tarifas base del Excel se construyeron asumiendo el precio
+    # del EPS Blanco (1.45). Por tanto, el diferencial para Grafito o Sostenibles
+    # se debe calcular SIEMPRE restando 1.45 al precio actual de esa materia prima.
+    precio_mp_original = 1.45 
     incremento_mp = (precio_mp_actual - precio_mp_original) * densidad
 
     # ── 7. Tarifa base de planta (KTM: N35) ─────────────────────────────
