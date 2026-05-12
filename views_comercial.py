@@ -231,7 +231,7 @@ def _crear_oferta():
                     st.metric("€/m³ SIN Scrap", f"{res['EUR_M3_SIN_SCRAP']:.2f}")
                     st.metric("€/pza SIN Scrap", f"{res['PRECIO_PIEZA_SIN_SCRAP']:.4f}")
                 with col4:
-                    st.metric("Scrap", f"{res['SCRAP_PCTG']:.1f}%")
+                    st.metric("Scrap", f"{res['SCRAP_PCTG']:.2f}%")
                     st.metric("Margen bruto", f"{res['MARGEN_PCTG']:.1f}%")
 
                 # Solo mostrar ajuste si realmente se ajustó

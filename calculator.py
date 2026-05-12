@@ -118,8 +118,12 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     if tarifa_base <= 0:
         return {"error": f"❌ No hay tarifa para {familia} / {articulo} en {planta_nombre}"}
 
-    # ── 8. Precio Ex Works €/m³ con Margen (KTM: R35 × (1+margen)) ────
-    precio_con_margen_m3 = (incremento_mp + tarifa_base) * (1 + margen_pctg / 100)
+    # ── 8. Precio Ex Works €/m³ (KTM: R35 = M35 + N35) ─────────────────
+    # KTM: El margen se aplica SOLO a la tarifa base (TARIFAS!J = P×(1+margen%))
+    # El incremento de materia prima se suma DESPUÉS, sin margen.
+    # R35 = incremento_mp + tarifa_base_con_margen
+    tarifa_con_margen = tarifa_base * (1 + margen_pctg / 100)
+    precio_con_margen_m3 = incremento_mp + tarifa_con_margen
 
     # ── 9. Precio por Pieza (KTM: N13, N14) ──────────────────────────────
     # N13: precio pieza CON scrap = (m3_bloque × €/m³) / piezas_bloque
