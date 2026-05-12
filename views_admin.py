@@ -11,13 +11,15 @@ from data import (
     load_logistica, save_logistica_from_df,
     load_plantas, load_ofertas, load_oferta_lineas,
     load_users, save_users_from_df,
-    get_config, set_config, PLANTAS
+    get_config, set_config, PLANTAS,
+    update_oferta_estado, load_ofertas_pendientes
 )
 
 
 def render_admin():
     st.sidebar.markdown("### ⚙️ Panel Admin")
     menu = st.sidebar.radio("Sección", [
+        "✅ Validar Ofertas",
         "📋 Todas las Ofertas",
         "📊 Tarifas (€/m³)",
         "🏢 Clientes",
@@ -29,6 +31,7 @@ def render_admin():
         "⚙️ Configuración",
     ])
     sections = {
+        "✅": _section_validar,
         "📋": _section_ofertas,
         "📊": _section_tarifas,
         "🏢": _section_clientes,
@@ -69,7 +72,7 @@ def _section_ofertas():
     st.metric("Total ofertas", len(filtered), delta=f"{filtered['TOTAL'].sum():,.2f}€ acumulado")
 
     show_cols = ["NUMERO_OFERTA", "REVISION", "COMERCIAL", "FECHA",
-                 "CLIENTE_NOMBRE", "TOTAL", "ESTADO"]
+                 "CLIENTE_NOMBRE", "TIPO_PRECIO", "TOTAL", "ESTADO"]
     show_cols = [c for c in show_cols if c in filtered.columns]
     st.dataframe(filtered[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 
@@ -84,6 +87,60 @@ def _section_ofertas():
             st.json({k: str(v) for k, v in of_row.to_dict().items()})
             if not lineas.empty:
                 st.dataframe(lineas, use_container_width=True, hide_index=True)
+
+
+# ── VALIDAR OFERTAS ───────────────────────────────────────────────────────────
+
+def _section_validar():
+    st.markdown("## ✅ Validar Ofertas (Precio SIN Scrap)")
+    st.caption("Ofertas que requieren aprobación antes de que el comercial pueda generar el PDF.")
+    
+    df = load_ofertas_pendientes()
+    if df.empty:
+        st.success("🎉 No hay ofertas pendientes de validación.")
+        return
+    
+    st.metric("Ofertas pendientes", len(df))
+    
+    for idx, row in df.iterrows():
+        oferta_id = int(row["ID"])
+        numero = row.get("NUMERO_OFERTA", "?")
+        cliente = row.get("CLIENTE_NOMBRE", "?")
+        comercial_name = row.get("COMERCIAL_NOMBRE", row.get("COMERCIAL", "?"))
+        total = float(row.get("TOTAL", 0))
+        fecha = row.get("FECHA", "?")
+        tipo_precio = row.get("TIPO_PRECIO", "SIN Scrap")
+        
+        with st.container(border=True):
+            col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+            with col1:
+                st.markdown(f"**{numero}**")
+                st.caption(f"👤 {comercial_name} — 📅 {fecha}")
+            with col2:
+                st.markdown(f"🏢 {cliente}")
+                st.caption(f"💰 Tipo: **{tipo_precio}**")
+            with col3:
+                st.metric("Total", f"{total:,.2f}€")
+            with col4:
+                # Detalle
+                lineas_df = load_oferta_lineas(oferta_id)
+                if not lineas_df.empty:
+                    with st.expander("📄 Detalle"):
+                        line_cols = ["TIPO_PRODUCTO", "CALIDAD", "DESCRIPCION", "CANTIDAD", "TOTAL_LINEA"]
+                        line_cols = [c for c in line_cols if c in lineas_df.columns]
+                        st.dataframe(lineas_df[line_cols], use_container_width=True, hide_index=True)
+            
+            col_a, col_r = st.columns(2)
+            with col_a:
+                if st.button("✅ Aprobar", key=f"approve_{oferta_id}", type="primary", use_container_width=True):
+                    update_oferta_estado(oferta_id, "Validada")
+                    st.success(f"✅ Oferta {numero} aprobada")
+                    st.rerun()
+            with col_r:
+                if st.button("❌ Rechazar", key=f"reject_{oferta_id}", use_container_width=True):
+                    update_oferta_estado(oferta_id, "Rechazada")
+                    st.warning(f"❌ Oferta {numero} rechazada")
+                    st.rerun()
 
 
 # ── TARIFAS ───────────────────────────────────────────────────────────────────

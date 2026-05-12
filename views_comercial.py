@@ -9,7 +9,8 @@ from data import (
     load_tarifas, load_clientes, buscar_cliente, get_familias_por_materia,
     get_articulos_familia, get_coste_transporte, load_materias_primas,
     save_oferta, next_oferta_number, get_config, set_config, load_ofertas,
-    load_oferta_lineas, PLANTAS, TIPOS_MATERIA_PRIMA
+    load_oferta_lineas, PLANTAS, TIPOS_MATERIA_PRIMA,
+    update_oferta_estado, send_validation_email
 )
 from calculator import calcular_linea
 from pdf_generator import generar_pdf_oferta
@@ -34,7 +35,7 @@ def _mis_ofertas():
         st.info("No tienes ofertas todavía.")
         return
 
-    show_cols = ["NUMERO_OFERTA", "FECHA", "CLIENTE_NOMBRE", "TOTAL", "ESTADO"]
+    show_cols = ["NUMERO_OFERTA", "FECHA", "CLIENTE_NOMBRE", "TIPO_PRECIO", "TOTAL", "ESTADO"]
     show_cols = [c for c in show_cols if c in df.columns]
     st.dataframe(df[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 
@@ -63,21 +64,30 @@ def _mis_ofertas():
             st.dataframe(lineas_df[line_cols].reset_index(drop=True),
                          use_container_width=True, hide_index=True)
 
-        # Botón reimprimir PDF
-        if st.button("📄 Descargar PDF", key="btn_reprint", type="primary", use_container_width=True):
-            try:
-                from pdf_generator import generar_pdf_oferta
-                lineas_list = lineas_df.to_dict("records") if not lineas_df.empty else []
-                pdf_bytes = generar_pdf_oferta(oferta_dict, lineas_list)
-                st.download_button(
-                    label="⬇️ Descargar PDF",
-                    data=pdf_bytes,
-                    file_name=f"Oferta_{sel_oferta}_{oferta_dict.get('CLIENTE_NOMBRE','')}.pdf",
-                    mime="application/pdf",
-                    key="dl_reprint"
-                )
-            except Exception as e:
-                st.error(f"❌ Error al generar PDF: {e}")
+        # Estado de la oferta
+        estado = str(oferta_dict.get("ESTADO", "Borrador"))
+        tipo_precio = str(oferta_dict.get("TIPO_PRECIO", "CON Scrap"))
+        
+        if estado == "Pendiente Validación":
+            st.warning(f"⏳ Esta oferta está **pendiente de validación** (precio {tipo_precio}). No se puede descargar el PDF hasta que sea aprobada.")
+        elif estado == "Rechazada":
+            st.error("❌ Esta oferta ha sido **rechazada**. Contacta con tu responsable.")
+        else:
+            # Botón reimprimir PDF (solo si validada o con scrap)
+            if st.button("📄 Descargar PDF", key="btn_reprint", type="primary", use_container_width=True):
+                try:
+                    from pdf_generator import generar_pdf_oferta
+                    lineas_list = lineas_df.to_dict("records") if not lineas_df.empty else []
+                    pdf_bytes = generar_pdf_oferta(oferta_dict, lineas_list)
+                    st.download_button(
+                        label="⬇️ Descargar PDF",
+                        data=pdf_bytes,
+                        file_name=f"Oferta_{sel_oferta}_{oferta_dict.get('CLIENTE_NOMBRE','')}.pdf",
+                        mime="application/pdf",
+                        key="dl_reprint"
+                    )
+                except Exception as e:
+                    st.error(f"❌ Error al generar PDF: {e}")
 
 
 # ── CREAR OFERTA ──────────────────────────────────────────────────────────────
@@ -253,13 +263,38 @@ def _crear_oferta():
     lineas = st.session_state.get("lineas_oferta", [])
     if lineas:
         with st.expander(f"📄 **Paso 3: Resumen de la oferta ({len(lineas)} líneas)**", expanded=True):
+            # ── Selector CON/SIN Scrap ──
+            tipo_precio = st.radio(
+                "💰 Tipo de precio",
+                ["PRECIO CON Scrap", "PRECIO SIN Scrap"],
+                horizontal=True, key="sel_tipo_precio",
+                help="SIN Scrap requiere validación de dirección antes de poder generar el PDF."
+            )
+            es_sin_scrap = tipo_precio == "PRECIO SIN Scrap"
+            
+            if es_sin_scrap:
+                st.warning("⚠️ Has seleccionado **PRECIO SIN Scrap**. Esta oferta requerirá validación de dirección antes de poder descargar el PDF.")
+
             df_lineas = pd.DataFrame(lineas)
-            show_cols = ["CALIDAD", "DIMENSION", "PLANTA", "CANTIDAD", "MATERIA_PRIMA",
-                         "PRECIO_PIEZA_CON_SCRAP", "PRECIO_PIEZA_SIN_SCRAP", "TOTAL_LINEA"]
+            # Recalcular totales según tipo de precio
+            if es_sin_scrap:
+                for i, l in enumerate(lineas):
+                    lineas[i]["_PRECIO_DISPLAY"] = l.get("PRECIO_PIEZA_SIN_SCRAP", l.get("PRECIO_PIEZA_CON_SCRAP", 0))
+                    lineas[i]["_TOTAL_DISPLAY"] = lineas[i]["_PRECIO_DISPLAY"] * l.get("CANTIDAD", 0)
+                df_lineas = pd.DataFrame(lineas)
+                show_cols = ["CALIDAD", "DIMENSION", "PLANTA", "CANTIDAD", "MATERIA_PRIMA",
+                             "PRECIO_PIEZA_SIN_SCRAP", "_TOTAL_DISPLAY"]
+            else:
+                for i, l in enumerate(lineas):
+                    lineas[i]["_PRECIO_DISPLAY"] = l.get("PRECIO_PIEZA_CON_SCRAP", 0)
+                    lineas[i]["_TOTAL_DISPLAY"] = l.get("TOTAL_LINEA", 0)
+                df_lineas = pd.DataFrame(lineas)
+                show_cols = ["CALIDAD", "DIMENSION", "PLANTA", "CANTIDAD", "MATERIA_PRIMA",
+                             "PRECIO_PIEZA_CON_SCRAP", "TOTAL_LINEA"]
             show_cols = [c for c in show_cols if c in df_lineas.columns]
             st.dataframe(df_lineas[show_cols], use_container_width=True, hide_index=True)
 
-            subtotal = sum(l["TOTAL_LINEA"] for l in lineas)
+            subtotal = sum(l["_TOTAL_DISPLAY"] for l in lineas)
             m3_total = sum(l["M3_PIEZA"] * l["CANTIDAD"] for l in lineas)
 
             # Eliminar línea
@@ -384,6 +419,7 @@ def _crear_oferta():
                         comercial = st.session_state.get("user_name", "Comercial")
                         email_com = st.session_state.get("user_email", "")
 
+                        estado_oferta = "Pendiente Validación" if es_sin_scrap else "Borrador"
                         oferta_dict = {
                             "NUMERO_OFERTA": numero,
                             "REVISION": 0,
@@ -406,24 +442,36 @@ def _crear_oferta():
                             "CONDICIONES_PAGO": cond_pago,
                             "CONDICIONES_TRANSPORTE": cond_transporte,
                             "OBSERVACIONES": observaciones,
-                            "ESTADO": "Borrador",
+                            "TIPO_PRECIO": tipo_precio,
+                            "ESTADO": estado_oferta,
                         }
 
                         df_lineas_save = pd.DataFrame(lineas)
                         try:
                             oferta_id = save_oferta(oferta_dict, df_lineas_save)
+                            
+                            # Si es SIN Scrap, enviar email de validación
+                            if es_sin_scrap:
+                                email_ok = send_validation_email(oferta_dict)
+                                if email_ok:
+                                    st.info("📧 Se ha enviado un email de validación a dirección.")
+                                else:
+                                    st.warning("⚠️ No se pudo enviar el email de validación. La oferta queda pendiente igualmente.")
                             st.success(f"✅ Oferta {numero} guardada correctamente")
                             
-                            # Generar PDF
-                            from pdf_generator import generar_pdf_oferta
-                            pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
-                            
-                            st.download_button(
-                                label="⬇️ Descargar PDF de Oferta",
-                                data=pdf_bytes,
-                                file_name=f"Oferta_{numero}_{cli.get('EMPRESA','')}.pdf",
-                                mime="application/pdf"
-                            )
+                            if es_sin_scrap:
+                                st.warning("⏳ Esta oferta está **pendiente de validación**. Podrás descargar el PDF desde 'Mis Ofertas' una vez sea aprobada.")
+                            else:
+                                # Generar PDF directamente (CON scrap no requiere validación)
+                                from pdf_generator import generar_pdf_oferta
+                                pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
+                                
+                                st.download_button(
+                                    label="⬇️ Descargar PDF de Oferta",
+                                    data=pdf_bytes,
+                                    file_name=f"Oferta_{numero}_{cli.get('EMPRESA','')}.pdf",
+                                    mime="application/pdf"
+                                )
                         except Exception as e:
                             st.warning(f"⚠️ PDF no generado: {e}")
 

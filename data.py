@@ -496,3 +496,72 @@ def get_max_revision(numero_oferta_base):
     if df.empty or df.iloc[0]["MAX_REV"] is None:
         return 0
     return int(df.iloc[0]["MAX_REV"])
+
+
+def update_oferta_estado(oferta_id, nuevo_estado):
+    """Actualiza el estado de una oferta (Borrador, Pendiente Validación, Validada, Rechazada)."""
+    _exec(f"UPDATE {T_OFERTAS} SET ESTADO = '{_esc(nuevo_estado)}' WHERE ID = {int(oferta_id)}")
+    st.cache_data.clear()
+
+
+def load_ofertas_pendientes():
+    """Devuelve las ofertas pendientes de validación (sin scrap)."""
+    return _query(f"SELECT * FROM {T_OFERTAS} WHERE ESTADO = 'Pendiente Validación' ORDER BY CREATED_AT DESC")
+
+
+def send_validation_email(oferta_dict):
+    """Envía un email al aprobador cuando se crea una oferta SIN scrap."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    import sys
+
+    approver_email = "victor.borras@knauf.com"
+
+    try:
+        smtp_user = st.secrets["SMTP_USER"]
+        smtp_pass = st.secrets["SMTP_PASSWORD"]
+        smtp_server = st.secrets.get("SMTP_SERVER", "smtp.gmail.com")
+        smtp_port = int(st.secrets.get("SMTP_PORT", "587"))
+    except Exception:
+        print(f"[DEV] Email validación para {approver_email} — Oferta {oferta_dict.get('NUMERO_OFERTA', '?')}", file=sys.stderr)
+        return False
+
+    try:
+        numero = oferta_dict.get("NUMERO_OFERTA", "?")
+        cliente = oferta_dict.get("CLIENTE_NOMBRE", "?")
+        comercial = oferta_dict.get("COMERCIAL_NOMBRE", "?")
+        total = oferta_dict.get("TOTAL", 0)
+
+        msg = MIMEMultipart()
+        msg["From"] = smtp_user
+        msg["To"] = approver_email
+        msg["Subject"] = f"🔔 Validación requerida — Oferta {numero} (SIN Scrap)"
+        body = f"""
+        <html><body style="font-family:Arial;padding:20px;">
+        <h2 style="color:#c0392b;">⚠️ Oferta SIN Scrap pendiente de validación</h2>
+        <table style="border-collapse:collapse;width:100%;max-width:500px;">
+            <tr><td style="padding:8px;font-weight:bold;background:#f8f9fa;">Nº Oferta</td>
+                <td style="padding:8px;">{numero}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;background:#f8f9fa;">Cliente</td>
+                <td style="padding:8px;">{cliente}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;background:#f8f9fa;">Comercial</td>
+                <td style="padding:8px;">{comercial}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;background:#f8f9fa;">Total</td>
+                <td style="padding:8px;font-weight:bold;color:#c0392b;">{total:,.2f} €</td></tr>
+            <tr><td style="padding:8px;font-weight:bold;background:#f8f9fa;">Tipo de precio</td>
+                <td style="padding:8px;color:#c0392b;font-weight:bold;">SIN SCRAP</td></tr>
+        </table>
+        <p style="margin-top:20px;">Accede a la aplicación para validar o rechazar esta oferta.</p>
+        <hr><p style="color:#888;font-size:12px;">App Ofertas — Knauf Industries</p>
+        </body></html>
+        """
+        msg.attach(MIMEText(body, "html"))
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"[ERROR SMTP validación] {e}", file=sys.stderr)
+        return False
