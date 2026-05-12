@@ -52,6 +52,29 @@ _PRECIOS_BASE_ORIGINALES = {
     "EPS_SOSTENIBLES": 3.00,
 }
 
+# Tabla de pzas/paquete para BOVEDILLAS según altura (solo Vilafranca)
+# Fuente: Bovedillas.xlsx proporcionado por el usuario
+_BOVEDILLA_PAQUETES = [
+    (100, 15), (120, 12), (130, 12),
+    (140, 9), (150, 9), (160, 9), (170, 9), (180, 9),
+    (190, 6), (200, 6), (210, 6), (220, 6), (230, 6), (240, 6), (250, 6), (260, 6), (270, 6),
+    (280, 3), (290, 3), (300, 3),
+]
+
+
+def _bovedilla_pzas_paquete(altura_mm):
+    """Devuelve el nº de piezas por paquete para una bovedilla según su altura."""
+    altura = int(altura_mm)
+    for h, pzas in _BOVEDILLA_PAQUETES:
+        if h == altura:
+            return pzas
+    # Si no hay coincidencia exacta, buscar el rango más cercano por debajo
+    best = 0
+    for h, pzas in _BOVEDILLA_PAQUETES:
+        if h <= altura:
+            best = pzas
+    return best
+
 
 def calcular_linea(familia, articulo, planta_nombre, densidad,
                    largo_pieza, ancho_pieza, espesor_pieza,
@@ -151,35 +174,44 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     cantidad_ajustada = cantidad_pedida
 
     if familia in FAMILIAS_CON_MULTIPLOS:
-        producto_log = _familia_to_logistica(familia)
-        if producto_log:
-            dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
-            pzas_paquete, pzas_bloque_log = get_logistica_row(producto_log, dim_str, espesor_pieza)
+        # ── 13a. Bovedillas: paquete según altura (solo Vilafranca) ────────
+        if "BOVEDILLAS" in familia and planta_nombre == "Vilafranca":
+            pzas_paquete = _bovedilla_pzas_paquete(espesor_pieza)
             if pzas_paquete > 0:
-                if "ETIX" in familia:
-                    # ETIX: la tabla logística manda directamente
-                    multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
-                    paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
-                    cantidad_ajustada = paquetes * multiplo_final
+                paquetes = max(1, math.ceil(cantidad_pedida / pzas_paquete))
+                cantidad_ajustada = paquetes * pzas_paquete
 
-                elif "PANEL_AISLANTE" in familia:
-                    # PANEL AISLANTE: mínimo = paquetes enteros que caben en bloque
-                    # Después del mínimo, múltiplos de paquete
-                    paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
-                    minimo = paquetes_enteros * pzas_paquete
-                    if cantidad_pedida < minimo:
-                        cantidad_ajustada = minimo
+        # ── 13b. Otras familias: tabla LOGISTICA ──────────────────────────
+        else:
+            producto_log = _familia_to_logistica(familia)
+            if producto_log:
+                dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
+                pzas_paquete, pzas_bloque_log = get_logistica_row(producto_log, dim_str, espesor_pieza)
+                if pzas_paquete > 0:
+                    if "ETIX" in familia:
+                        # ETIX: la tabla logística manda directamente
+                        multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
+                        paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
+                        cantidad_ajustada = paquetes * multiplo_final
+
+                    elif "PANEL_AISLANTE" in familia:
+                        # PANEL AISLANTE: mínimo = paquetes enteros que caben en bloque
+                        # Después del mínimo, múltiplos de paquete
+                        paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
+                        minimo = paquetes_enteros * pzas_paquete
+                        if cantidad_pedida < minimo:
+                            cantidad_ajustada = minimo
+                        else:
+                            cantidad_ajustada = math.ceil(cantidad_pedida / pzas_paquete) * pzas_paquete
+                        multiplo_final = pzas_paquete
+
                     else:
-                        cantidad_ajustada = math.ceil(cantidad_pedida / pzas_paquete) * pzas_paquete
-                    multiplo_final = pzas_paquete
+                        # Otras familias: múltiplo de paquete
+                        multiplo_final = pzas_paquete
+                        paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
+                        cantidad_ajustada = paquetes * multiplo_final
 
-                else:
-                    # Otras familias: múltiplo de paquete
-                    multiplo_final = pzas_paquete
-                    paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
-                    cantidad_ajustada = paquetes * multiplo_final
-
-                pzas_paquete = multiplo_final  # Para que la UI muestre el múltiplo
+                    pzas_paquete = multiplo_final  # Para que la UI muestre el múltiplo
 
     # ── 14. Transporte (referencia) ───────────────────────────────────────
     coste_transp_m3, coste_grupaje_m3, minimo_transporte = get_coste_transporte(planta_nombre)
