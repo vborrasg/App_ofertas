@@ -343,18 +343,22 @@ def _crear_oferta():
                     m3_linea = l["M3_PIEZA"] * l["CANTIDAD"]
                     imp_plastico_total += m3_linea * densidad * imp_plast_kg
 
+            # Descuento se aplica SOLO sobre el producto (subtotal), ANTES de portes
             descuento_valor = subtotal * descuento / 100
-            total_final = subtotal + porte_final + imp_plastico_total - descuento_valor
+            subtotal_con_dto = subtotal - descuento_valor
+            total_final = subtotal_con_dto + porte_final + imp_plastico_total
 
             st.markdown("---")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1: st.metric("Subtotal", f"{subtotal:,.2f}€")
-            with col2: st.metric("Portes", f"{porte_final:,.2f}€")
-            with col3: st.metric("Imp. plástico", f"{imp_plastico_total:,.2f}€")
-            with col4: st.metric("**TOTAL**", f"{total_final:,.2f}€")
-
-            if descuento > 0:
-                st.caption(f"Descuento aplicado: -{descuento_valor:,.2f}€ ({descuento}%)")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1: st.metric("Subtotal producto", f"{subtotal:,.2f}€")
+            with col2:
+                if descuento > 0:
+                    st.metric("Dto. producto", f"-{descuento_valor:,.2f}€", delta=f"-{descuento}%")
+                else:
+                    st.metric("Dto. producto", "0,00€")
+            with col3: st.metric("Portes", f"{porte_final:,.2f}€")
+            with col4: st.metric("Imp. plástico", f"{imp_plastico_total:,.2f}€")
+            with col5: st.metric("**TOTAL**", f"{total_final:,.2f}€")
 
             st.markdown("---")
             st.markdown("### 📝 Condiciones y observaciones")
@@ -446,13 +450,16 @@ def _crear_oferta():
                             "ESTADO": estado_oferta,
                         }
 
-                        # Si es SIN Scrap, actualizar precios de cada línea
+                        # Si es SIN Scrap, actualizar TODOS los precios de cada línea
                         if es_sin_scrap:
                             for i, l in enumerate(lineas):
                                 precio_sin = l.get("PRECIO_PIEZA_SIN_SCRAP", l.get("PRECIO_PIEZA_CON_SCRAP", 0))
                                 lineas[i]["PRECIO_PIEZA_CON_SCRAP"] = precio_sin
                                 lineas[i]["PRECIO_UNITARIO"] = precio_sin
                                 lineas[i]["TOTAL_LINEA"] = precio_sin * l.get("CANTIDAD", 0)
+                                # Actualizar también €/m³
+                                lineas[i]["EUR_M3_CON_SCRAP"] = l.get("EUR_M3_SIN_SCRAP", l.get("EUR_M3_CON_SCRAP", 0))
+                                lineas[i]["PRECIO_M3"] = l.get("EUR_M3_SIN_SCRAP", l.get("PRECIO_M3", 0))
 
                         df_lineas_save = pd.DataFrame(lineas)
                         try:

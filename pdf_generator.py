@@ -177,14 +177,17 @@ def generar_pdf_oferta(oferta, lineas):
                              alignment=TA_RIGHT, textColor=AZUL)
 
     tot_data = [
-        [Paragraph("<b>Subtotal</b>", s_tot_l), Paragraph(f"<b>{subtotal:,.2f} €</b>", s_tot_b)],
-        [Paragraph("Portes", s_tot_l), Paragraph(f"{portes:,.2f} €", s_tot_r)],
-        [Paragraph("Subtotal con portes", s_tot_l), Paragraph(f"{subtotal + portes:,.2f} €", s_tot_r)],
-        [Paragraph("Impuesto al plástico", s_tot_l), Paragraph(f"{imp_plastico:,.2f} €", s_tot_r)],
+        [Paragraph("<b>Subtotal producto</b>", s_tot_l), Paragraph(f"<b>{subtotal:,.2f} €</b>", s_tot_b)],
     ]
     if desc_pctg > 0 or desc_val > 0:
         tot_data.append([Paragraph(f"Descuento ({desc_pctg:.1f}%)", s_tot_l),
                          Paragraph(f"-{desc_val:,.2f} €", s_tot_r)])
+        subtotal_neto = subtotal - desc_val
+        tot_data.append([Paragraph("Subtotal con dto.", s_tot_l),
+                         Paragraph(f"{subtotal_neto:,.2f} €", s_tot_r)])
+    tot_data.append([Paragraph("Portes", s_tot_l), Paragraph(f"{portes:,.2f} €", s_tot_r)])
+    if imp_plastico > 0:
+        tot_data.append([Paragraph("Impuesto al plástico", s_tot_l), Paragraph(f"{imp_plastico:,.2f} €", s_tot_r)])
     tot_data.append([Paragraph("<b>Total s/IVA</b>", s_tot_l),
                      Paragraph(f"<b>{total:,.2f} €</b>", s_tot_b)])
 
