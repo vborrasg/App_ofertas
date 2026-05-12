@@ -192,20 +192,14 @@ def _crear_oferta():
             cant_ajustada = res_preview.get("CANTIDAD", cantidad)
             
             if "error" not in res_preview and cant_ajustada != cantidad:
-                st.warning(f"💡 Embalaje: La cantidad mínima sugerida es **{cant_ajustada}** piezas (múltiplo logístico).")
-                st.button(
-                    f"✅ Ajustar a {cant_ajustada} piezas",
-                    on_click=lambda v=cant_ajustada: st.session_state.update(
-                        {"cant_input": v, "ultimo_calculo": None}
-                    ),
-                )
+                st.info(f"📦 **Ajuste logístico automático:** {cantidad} → **{cant_ajustada}** piezas (múltiplo de {res_preview.get('PZAS_PAQUETE', '?')} pzas/paquete).")
 
-            # ── CALCULAR ─────────────────────────────────────────────────
+            # ── CALCULAR (siempre con cantidad ajustada) ──────────────────
             if st.button("🧮 Calcular", type="primary", key="btn_calc"):
                 resultado = calcular_linea(
                     familia=familia, articulo=articulo, planta_nombre=planta,
                     densidad=densidad, largo_pieza=largo, ancho_pieza=ancho,
-                    espesor_pieza=espesor, cantidad_pedida=cantidad,
+                    espesor_pieza=espesor, cantidad_pedida=cant_ajustada,
                     margen_pctg=margen, materia_prima=materia
                 )
                 if "error" in resultado:
