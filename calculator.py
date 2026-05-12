@@ -135,10 +135,16 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     precio_pieza_sin_scrap = (m3_piezas_neto * precio_con_margen_m3) / pzas_bloque
 
     # ── 10. €/m³ equivalente (KTM: L13, L14) ─────────────────────────────
+    # L12: Tarifa final (con margen e incremento de MP)
+    tarifa_final = precio_con_margen_m3
+    
     # L13: €/m³ CON scrap = (precio_pieza_con × piezas) / m3_neto
+    # Matemáticamente equivale a: tarifa_final / eficiencia
     eur_m3_con_scrap = (precio_pieza_con_scrap * pzas_bloque) / m3_piezas_neto if m3_piezas_neto > 0 else 0
-    # L14: €/m³ SIN scrap = precio_con_margen_m3 (directo)
-    eur_m3_sin_scrap = precio_con_margen_m3
+    
+    # L14: €/m³ SIN scrap = tarifa_final × eficiencia_bloque (m3_neto / vol_bloque)
+    eficiencia = m3_piezas_neto / vol_bloque if vol_bloque > 0 else 0
+    eur_m3_sin_scrap = tarifa_final * eficiencia
 
     # ── 13. Ajuste a múltiplos logísticos ─────────────────────────────────
     pzas_paquete = 0
@@ -223,6 +229,7 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         "PRECIO_EXWORKS_M3": round(precio_con_margen_m3, 4),
         "MARGEN_PCTG": margen_pctg,
         "PRECIO_CON_MARGEN_M3": round(precio_con_margen_m3, 4),
+        "TARIFA_FINAL": round(tarifa_final, 4),
         "EUR_M3_CON_SCRAP": round(eur_m3_con_scrap, 4),
         "EUR_M3_SIN_SCRAP": round(eur_m3_sin_scrap, 4),
 

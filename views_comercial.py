@@ -222,8 +222,8 @@ def _crear_oferta():
 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
+                    st.metric("TARIFA Catálogo", f"{res.get('TARIFA_FINAL', 0):.2f} €/m³")
                     st.metric("Piezas/Bloque", res["PZAS_BLOQUE"])
-                    st.metric("m³ pieza", f"{res['M3_PIEZA']:.6f}")
                 with col2:
                     st.metric("€/m³ CON Scrap", f"{res['EUR_M3_CON_SCRAP']:.2f}")
                     st.metric("€/pza CON Scrap", f"{res['PRECIO_PIEZA_CON_SCRAP']:.4f}")
