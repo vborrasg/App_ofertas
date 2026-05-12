@@ -234,10 +234,18 @@ def _crear_oferta():
                     st.metric("Scrap", f"{res['SCRAP_PCTG']:.2f}%")
                     st.metric("Margen bruto", f"{res['MARGEN_PCTG']:.1f}%")
 
-                # Solo mostrar ajuste si realmente se ajustó
                 ajuste_info = res.get("AJUSTE_INFO", "")
                 if ajuste_info:
                     st.caption(ajuste_info)
+                    
+                with st.expander("🔍 Ver desglose de cálculo (Debug)"):
+                    st.markdown(f"""
+                    - **Tarifa Base Planta:** {res.get('TARIFA_BASE_PLANTA', 0):.4f} €
+                    - **Precio MP Original (Blanco):** {res.get('PRECIO_MP_ORIGINAL', 0):.4f} €/kg
+                    - **Precio MP Actual:** {res.get('PRECIO_MP_ACTUAL', 0):.4f} €/kg
+                    - **Incremento MP:** {res.get('INCREMENTO_MP', 0):.4f} €/m³
+                    - **Precio Ex Works (Sin Scrap):** {res.get('PRECIO_EXWORKS_M3', 0):.4f} €/m³
+                    """)
                     
                 st.metric("💰 Total línea (con scrap)", f"{res['TOTAL_LINEA']:,.2f} €")
 
