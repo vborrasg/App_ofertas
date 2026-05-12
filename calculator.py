@@ -177,9 +177,11 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         # ── 13a. Bovedillas: paquete según altura (solo Vilafranca) ────────
         if "BOVEDILLAS" in familia and planta_nombre == "Vilafranca":
             pzas_paquete = _bovedilla_pzas_paquete(espesor_pieza)
+            print(f"[DEBUG BOVEDILLA] familia={familia}, planta={planta_nombre}, espesor={espesor_pieza}, pzas_paquete={pzas_paquete}, cantidad_pedida={cantidad_pedida}")
             if pzas_paquete > 0:
                 paquetes = max(1, math.ceil(cantidad_pedida / pzas_paquete))
                 cantidad_ajustada = paquetes * pzas_paquete
+                print(f"[DEBUG BOVEDILLA] → cantidad_ajustada={cantidad_ajustada}")
 
         # ── 13b. Otras familias: tabla LOGISTICA ──────────────────────────
         else:
