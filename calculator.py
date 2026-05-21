@@ -78,7 +78,8 @@ def _bovedilla_pzas_paquete(altura_mm):
 
 def calcular_linea(familia, articulo, planta_nombre, densidad,
                    largo_pieza, ancho_pieza, espesor_pieza,
-                   cantidad_pedida, margen_pctg=0.0, materia_prima="EPS_Blanco"):
+                   cantidad_pedida, margen_pctg=0.0, materia_prima="EPS_Blanco",
+                   grupo_compra="Ninguno", descuento_absoluto_m3=0.0):
     """
     Motor de cálculo KTM — réplica exacta de las fórmulas del Excel.
     
@@ -98,6 +99,8 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     cantidad_pedida = int(cantidad_pedida)
     margen_pctg = float(margen_pctg)
     densidad = float(densidad)
+    grupo_compra = grupo_compra or "Ninguno"
+    descuento_absoluto_m3 = float(descuento_absoluto_m3 or 0.0)
 
     # ── 1. Datos de la planta y Bloque (Corte vs Fabricación) ─────────────
     planta = get_planta(planta_nombre)
@@ -107,75 +110,107 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
     largo_bloque_raw = float(planta["LARGO_MAX"])
     ancho_bloque_raw = float(planta["ANCHO_MAX"])
     grueso_bloque_raw = float(planta["GRUESO_MAX"])
-
-    # ── 2. Redondear bloque (KTM: M4/M5/M6 = dimensiones de corte) ──────
-    largo_b, ancho_b, grueso_b = _redondear_bloque(
-        largo_bloque_raw, ancho_bloque_raw, grueso_bloque_raw, planta_nombre
-    )
-    vol_bloque = (largo_b * ancho_b * grueso_b) / 1_000_000_000  # N8
-
-    # ── 3. Piezas por bloque (KTM: J12) ──────────────────────────────────
-    pzas_largo = int(largo_b / largo_pieza)
-    pzas_ancho = int(ancho_b / ancho_pieza)
-    pzas_alto = int(grueso_b / espesor_pieza)
-    pzas_bloque = pzas_largo * pzas_ancho * pzas_alto
-
-    if pzas_bloque == 0:
-        return {"error": "❌ Las dimensiones no permiten cortar piezas del bloque"}
-
-    # ── 4. Volúmenes (KTM: N7, N8) ───────────────────────────────────────
+    
     m3_pieza = (largo_pieza * ancho_pieza * espesor_pieza) / 1_000_000_000
-    m3_piezas_neto = m3_pieza * pzas_bloque           # N7 (Total piezas)
-    
-    # ── 5. Scrap % (KTM: J13) ────────────────────────────────────────────
-    scrap_ratio = (vol_bloque - m3_piezas_neto) / vol_bloque if vol_bloque > 0 else 0
-    scrap_pctg = scrap_ratio * 100
 
-    # ── 6. Incremento materia prima (KTM: M35) ───────────────────────────
-    precio_mp_actual = _get_precio_mp_base(materia_prima)
-    # KTM: Todas las tarifas base del Excel se construyeron asumiendo el precio
-    # del EPS Blanco (1.45). Por tanto, el diferencial para Grafito o Sostenibles
-    # se debe calcular SIEMPRE restando 1.45 al precio actual de esa materia prima.
-    precio_mp_original = 1.45 
-    incremento_mp = (precio_mp_actual - precio_mp_original) * densidad
+    if grupo_compra != "Ninguno":
+        # ── Lógica de Grupo de Compra: Opción A (Sin Scrap / Tarifa Plana) ──
+        from data import get_precio_grupo
+        tarifa_grupo = get_precio_grupo(grupo_compra, familia, articulo)
+        if tarifa_grupo is None:
+            return {"error": f"❌ No hay tarifa de grupo para {grupo_compra} / {familia} / {articulo}"}
+        
+        tarifa_final = tarifa_grupo - descuento_absoluto_m3
+        precio_con_margen_m3 = tarifa_final
+        
+        # Tarifa plana: pieza con y sin scrap es idéntica
+        precio_pieza_con_scrap = m3_pieza * tarifa_final
+        precio_pieza_sin_scrap = m3_pieza * tarifa_final
+        
+        eur_m3_con_scrap = tarifa_final
+        eur_m3_sin_scrap = tarifa_final
+        
+        pzas_bloque = 1
+        pzas_largo = 1
+        pzas_ancho = 1
+        pzas_alto = 1
+        scrap_pctg = 0.0
+        vol_bloque = m3_pieza
+        m3_piezas_neto = m3_pieza
+        incremento_mp = 0.0
+        precio_mp_actual = 0.0
+        precio_mp_original = 0.0
+        tarifa_base = tarifa_grupo
+        largo_b, ancho_b, grueso_b = largo_bloque_raw, ancho_bloque_raw, grueso_bloque_raw
+    else:
+        # ── 2. Redondear bloque (KTM: M4/M5/M6 = dimensiones de corte) ──────
+        largo_b, ancho_b, grueso_b = _redondear_bloque(
+            largo_bloque_raw, ancho_bloque_raw, grueso_bloque_raw, planta_nombre
+        )
+        vol_bloque = (largo_b * ancho_b * grueso_b) / 1_000_000_000  # N8
 
-    # ── 7. Tarifa base de planta (KTM: N35) ─────────────────────────────
-    tarifa_base = get_tarifa(familia, articulo, planta_nombre)
-    if tarifa_base <= 0:
-        return {"error": f"❌ No hay tarifa para {familia} / {articulo} en {planta_nombre}"}
+        # ── 3. Piezas por bloque (KTM: J12) ──────────────────────────────────
+        pzas_largo = int(largo_b / largo_pieza)
+        pzas_ancho = int(ancho_b / ancho_pieza)
+        pzas_alto = int(grueso_b / espesor_pieza)
+        pzas_bloque = pzas_largo * pzas_ancho * pzas_alto
 
-    # ── 8. Precio Ex Works €/m³ (KTM: R35 = M35 + N35) ─────────────────
-    # KTM: El margen se aplica SOLO a la tarifa base (TARIFAS!J = P×(1+margen%))
-    # El incremento de materia prima se suma DESPUÉS, sin margen.
-    # R35 = incremento_mp + tarifa_base_con_margen
-    tarifa_con_margen = tarifa_base * (1 + margen_pctg / 100)
-    precio_con_margen_m3 = incremento_mp + tarifa_con_margen
+        if pzas_bloque == 0:
+            return {"error": "❌ Las dimensiones no permiten cortar piezas del bloque"}
 
-    # ── 9. Precio por Pieza (KTM: N13, N14) ──────────────────────────────
-    # N13: precio pieza CON scrap = (m3_bloque × €/m³) / piezas_bloque
-    precio_pieza_con_scrap = (vol_bloque * precio_con_margen_m3) / pzas_bloque
-    # N14: precio pieza SIN scrap = (m3_neto × €/m³) / piezas_bloque
-    precio_pieza_sin_scrap = (m3_piezas_neto * precio_con_margen_m3) / pzas_bloque
+        # ── 4. Volúmenes (KTM: N7, N8) ───────────────────────────────────────
+        m3_piezas_neto = m3_pieza * pzas_bloque           # N7 (Total piezas)
+        
+        # ── 5. Scrap % (KTM: J13) ────────────────────────────────────────────
+        scrap_ratio = (vol_bloque - m3_piezas_neto) / vol_bloque if vol_bloque > 0 else 0
+        scrap_pctg = scrap_ratio * 100
 
-    # ── 10. €/m³ equivalente (KTM: L13, L14) ─────────────────────────────
-    # L12: Tarifa final (con margen e incremento de MP)
-    tarifa_final = precio_con_margen_m3
-    
-    # L13: €/m³ CON scrap = (precio_pieza_con × piezas) / m3_neto
-    # Matemáticamente equivale a: tarifa_final / eficiencia
-    eur_m3_con_scrap = (precio_pieza_con_scrap * pzas_bloque) / m3_piezas_neto if m3_piezas_neto > 0 else 0
-    
-    # L14: €/m³ SIN scrap = tarifa_final × eficiencia_bloque (m3_neto / vol_bloque)
-    eficiencia = m3_piezas_neto / vol_bloque if vol_bloque > 0 else 0
-    eur_m3_sin_scrap = tarifa_final * eficiencia
+        # ── 6. Incremento materia prima (KTM: M35) ───────────────────────────
+        precio_mp_actual = _get_precio_mp_base(materia_prima)
+        # KTM: Todas las tarifas base del Excel se construyeron asumiendo el precio
+        # del EPS Blanco (1.45). Por tanto, el diferencial para Grafito o Sostenibles
+        # se debe calcular SIEMPRE restando 1.45 al precio actual de esa materia prima.
+        precio_mp_original = 1.45 
+        incremento_mp = (precio_mp_actual - precio_mp_original) * densidad
+
+        # ── 7. Tarifa base de planta (KTM: N35) ─────────────────────────────
+        tarifa_base = get_tarifa(familia, articulo, planta_nombre)
+        if tarifa_base <= 0:
+            return {"error": f"❌ No hay tarifa para {familia} / {articulo} en {planta_nombre}"}
+
+        # ── 8. Precio Ex Works €/m³ (KTM: R35 = M35 + N35) ─────────────────
+        # KTM: El margen se aplica SOLO a la tarifa base (TARIFAS!J = P×(1+margen%))
+        # El incremento de materia prima se suma DESPUÉS, sin margen.
+        # R35 = incremento_mp + tarifa_base_con_margen
+        tarifa_con_margen = tarifa_base * (1 + margen_pctg / 100)
+        precio_con_margen_m3 = (incremento_mp + tarifa_con_margen) - descuento_absoluto_m3
+
+        # ── 9. Precio por Pieza (KTM: N13, N14) ──────────────────────────────
+        # N13: precio pieza CON scrap = (m3_bloque × €/m³) / piezas_bloque
+        precio_pieza_con_scrap = (vol_bloque * precio_con_margen_m3) / pzas_bloque
+        # N14: precio pieza SIN scrap = (m3_neto × €/m³) / piezas_bloque
+        precio_pieza_sin_scrap = (m3_piezas_neto * precio_con_margen_m3) / pzas_bloque
+
+        # ── 10. €/m³ equivalente (KTM: L13, L14) ─────────────────────────────
+        # L12: Tarifa final (con margen e incremento de MP)
+        tarifa_final = precio_con_margen_m3
+        
+        # L13: €/m³ CON scrap = (precio_pieza_con × piezas) / m3_neto
+        # Matemáticamente equivale a: tarifa_final / eficiencia
+        eur_m3_con_scrap = (precio_pieza_con_scrap * pzas_bloque) / m3_piezas_neto if m3_piezas_neto > 0 else 0
+        
+        # L14: €/m³ SIN scrap = tarifa_final × eficiencia_bloque (m3_neto / vol_bloque)
+        eficiencia = m3_piezas_neto / vol_bloque if vol_bloque > 0 else 0
+        eur_m3_sin_scrap = tarifa_final * eficiencia
 
     # ── 13. Ajuste a múltiplos logísticos ─────────────────────────────────
     pzas_paquete = 0
     cantidad_ajustada = cantidad_pedida
 
-    if familia in FAMILIAS_CON_MULTIPLOS:
+    is_group_family_with_multiples = grupo_compra != "Ninguno" and familia in ["BOVEDILLA", "PLANCHA", "CASETON", "SATE"]
+    if familia in FAMILIAS_CON_MULTIPLOS or is_group_family_with_multiples:
         # ── 13a. Bovedillas: paquete según altura (solo Vilafranca) ────────
-        if "BOVEDILLAS" in familia and planta_nombre == "Vilafranca":
+        if ("BOVEDILLAS" in familia or familia == "BOVEDILLA") and planta_nombre == "Vilafranca":
             pzas_paquete = _bovedilla_pzas_paquete(espesor_pieza)
             if pzas_paquete > 0:
                 paquetes = max(1, math.ceil(cantidad_pedida / pzas_paquete))
@@ -188,14 +223,14 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
                 dim_str = f"{int(largo_pieza)}X{int(ancho_pieza)}"
                 pzas_paquete, pzas_bloque_log = get_logistica_row(producto_log, dim_str, espesor_pieza)
                 if pzas_paquete > 0:
-                    if "ETIX" in familia:
-                        # ETIX: la tabla logística manda directamente
+                    if "ETIX" in familia or familia == "SATE":
+                        # ETIX / SATE: la tabla logística manda directamente
                         multiplo_final = pzas_bloque_log if pzas_bloque_log > 0 else pzas_paquete
                         paquetes = max(1, math.ceil(cantidad_pedida / multiplo_final))
                         cantidad_ajustada = paquetes * multiplo_final
 
-                    elif "PANEL_AISLANTE" in familia:
-                        # PANEL AISLANTE: mínimo = paquetes enteros que caben en bloque
+                    elif "PANEL_AISLANTE" in familia or familia == "PLANCHA":
+                        # PANEL AISLANTE / PLANCHA: mínimo = paquetes enteros que caben en bloque
                         # Después del mínimo, múltiplos de paquete
                         paquetes_enteros = math.floor(pzas_bloque_log / pzas_paquete)
                         minimo = paquetes_enteros * pzas_paquete
@@ -221,6 +256,8 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
 
     # ── 16. Descripción ──────────────────────────────────────────────────
     desc = f"{int(largo_pieza)}×{int(ancho_pieza)}×{int(espesor_pieza)} mm"
+    if descuento_absoluto_m3 > 0:
+        desc += f" [Dto: -{descuento_absoluto_m3:.2f} €/m³]"
 
     return {
         "TIPO_PRODUCTO": familia,
@@ -231,6 +268,7 @@ def calcular_linea(familia, articulo, planta_nombre, densidad,
         "PLANTA": planta_nombre,
         "DIMENSION": desc,
         "ESPESOR": espesor_pieza,
+        "DESCUENTO_ABSOLUTO_M3": descuento_absoluto_m3,
 
         # Bloque
         "BLOQUE_BRUTO": f"{int(largo_bloque_raw)}×{int(ancho_bloque_raw)}×{int(grueso_bloque_raw)}",
@@ -304,6 +342,11 @@ def _familia_to_logistica(familia):
         "ALIGERADOS.EPS": "CASETON",
         "RECTIBOARD.EPS": "PLANCHA",
         "RECTIBOARD.GRAFITO": "PLANCHA",
+        # Familias de Grupo de Compra
+        "PLANCHA": "PLANCHA",
+        "BOVEDILLA": "BOVEDILLA",
+        "CASETON": "CASETON",
+        "SATE": "PLANCHA",
     }
     return mapping.get(familia)
 

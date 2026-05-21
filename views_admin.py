@@ -12,7 +12,8 @@ from data import (
     load_plantas, load_ofertas, load_oferta_lineas,
     load_users, save_users_from_df,
     get_config, set_config, PLANTAS,
-    update_oferta_estado, load_ofertas_pendientes
+    update_oferta_estado, load_ofertas_pendientes,
+    load_precios_grupos
 )
 
 
@@ -22,6 +23,7 @@ def render_admin():
         "✅ Validar Ofertas",
         "📋 Todas las Ofertas",
         "📊 Tarifas (€/m³)",
+        "🏷️ Tarifas Grupos",
         "🏢 Clientes",
         "🧪 Materias Primas",
         "🚚 Transporte",
@@ -34,6 +36,7 @@ def render_admin():
         "✅": _section_validar,
         "📋": _section_ofertas,
         "📊": _section_tarifas,
+        "🏷️": _section_tarifas_grupos,
         "🏢": _section_clientes,
         "🧪": _section_materias_primas,
         "🚚": _section_transporte,
@@ -386,3 +389,26 @@ def _section_config():
         new_val = st.text_input(label, value=val, key=f"cfg_{key}")
         if new_val != val:
             set_config(key, new_val)
+
+
+# ── TARIFAS GRUPOS ───────────────────────────────────────────────────────────
+
+def _section_tarifas_grupos():
+    st.markdown("## 🏷️ Tarifas de Grupos de Compra")
+    st.caption("Tarifas especiales cargadas desde el archivo de Precios de Grupos de Compra.")
+    
+    df = load_precios_grupos()
+    if df.empty:
+        st.warning("⚠️ No se han encontrado tarifas de grupos de compra en el sistema. Asegúrate de que el archivo Excel existe en la raíz del proyecto.")
+        return
+
+    # Filtro por artículo / familia
+    articulos = ["Todos"] + sorted(df["ARTÍCULO"].unique().tolist())
+    sel_art = st.selectbox("Filtrar por Familia / Artículo", articulos)
+    
+    filtered_df = df.copy()
+    if sel_art != "Todos":
+        filtered_df = filtered_df[filtered_df["ARTÍCULO"] == sel_art]
+        
+    st.metric("Total combinaciones con precio", len(filtered_df))
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)

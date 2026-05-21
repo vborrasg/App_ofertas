@@ -10,10 +10,43 @@ from data import (
     get_articulos_familia, get_coste_transporte, load_materias_primas,
     save_oferta, next_oferta_number, get_config, set_config, load_ofertas,
     load_oferta_lineas, PLANTAS, TIPOS_MATERIA_PRIMA,
-    update_oferta_estado, send_validation_email
+    update_oferta_estado, send_validation_email,
+    get_productos_grupo, get_calidades_producto_grupo
 )
 from calculator import calcular_linea
 from pdf_generator import generar_pdf_oferta
+
+
+def _infer_density(quality):
+    """Infiere la densidad aproximada a partir del nombre de la calidad en grupos de compra."""
+    q = quality.upper().strip()
+    if "250" in q:
+        return 35.0
+    elif "200" in q:
+        return 30.0
+    elif "150" in q:
+        return 25.0
+    elif "100" in q:
+        return 20.0
+    elif "60" in q:
+        return 15.0
+    elif "30" in q:
+        return 12.0
+    elif "BATIMENT" in q:
+        return 10.0
+    elif "TH 39" in q or "TH39" in q:
+        return 15.0
+    elif "TH 37" in q or "TH37" in q or "ETIX 37" in q:
+        return 15.0
+    elif "TH 35" in q or "TH35" in q:
+        return 20.0
+    elif "TH 34" in q or "TH34" in q:
+        return 30.0
+    elif "S3" in q or "EPS S" in q:
+        return 10.0
+    elif "ETIX 32" in q:
+        return 15.0
+    return 15.0
 
 
 def render_comercial():
@@ -147,6 +180,39 @@ def _crear_oferta():
                 "TELEFONO": cli_tel, "DIRECCION": cli_dir
             }
 
+        st.markdown("---")
+        st.markdown("### 🏷️ Grupo de Compra")
+        grupos_list = [
+            "Ninguno",
+            "BIG MAT",
+            "ESTRAT. BIG MAT",
+            "EMCCAT",
+            "GRUP GAMMA",
+            "IDAPLAC",
+            "DAVSA",
+            "GRUP IBRICKS"
+        ]
+        if "grupo_compra" not in st.session_state:
+            st.session_state["grupo_compra"] = "Ninguno"
+        
+        try:
+            grupo_compra_index = grupos_list.index(st.session_state["grupo_compra"])
+        except ValueError:
+            grupo_compra_index = 0
+            
+        grupo_compra = st.selectbox(
+            "Seleccionar Grupo de Compra global para la oferta",
+            grupos_list,
+            index=grupo_compra_index,
+            key="sel_grupo_compra_global",
+            help="Al seleccionar un grupo, todos los artículos de la oferta se tasarán según ese grupo y no se pueden mezclar líneas normales con líneas de grupo."
+        )
+        if grupo_compra != st.session_state["grupo_compra"]:
+            st.session_state["grupo_compra"] = grupo_compra
+            if st.session_state.get("lineas_oferta"):
+                st.session_state.lineas_oferta = []
+                st.info("🔄 Se ha cambiado el grupo de compra. Las líneas anteriores se han eliminado para evitar ofertas mixtas.")
+
     # ── PASO 2: CONFIGURAR PIEZA ─────────────────────────────────────────
     with st.expander("🔧 **Paso 2: Configurar pieza**", expanded=True):
         col1, col2, col3 = st.columns(3)
@@ -167,24 +233,39 @@ def _crear_oferta():
             margen = st.number_input("📈 Margen bruto (%)", min_value=15.0,
                                      value=15.0, step=1.0, key="sel_margen")
 
-        # Familias disponibles para la materia prima seleccionada
-        familias = get_familias_por_materia(materia)
-        if not familias:
-            st.warning("⚠️ No hay tarifas cargadas para esta materia prima. El admin debe subir las tarifas.")
-            return
+        # Si hay grupo de compra activo, cargamos desde el Excel de grupos de compra
+        grupo_compra = st.session_state.get("grupo_compra", "Ninguno")
+        
+        if grupo_compra != "Ninguno":
+            familias = get_productos_grupo(grupo_compra)
+            if not familias:
+                st.warning(f"⚠️ No hay productos con tarifas definidas para el grupo de compra '{grupo_compra}'.")
+                return
+            st.info(f"🏷️ **Grupo de Compra Activo: {grupo_compra}**. Se aplicará la tarifa de grupo directamente (Opción A - Tarifa Plana Sin Scrap).")
+        else:
+            familias = get_familias_por_materia(materia)
+            if not familias:
+                st.warning("⚠️ No hay tarifas cargadas para esta materia prima. El admin debe subir las tarifas.")
+                return
 
         col1, col2 = st.columns(2)
         with col1:
             familia = st.selectbox("📦 Familia de producto", familias, key="sel_familia")
         with col2:
-            articulos = get_articulos_familia(familia) if familia else []
+            if grupo_compra != "Ninguno":
+                articulos = get_calidades_producto_grupo(grupo_compra, familia) if familia else []
+            else:
+                articulos = get_articulos_familia(familia) if familia else []
             articulo = st.selectbox("🏷️ Artículo / Calidad", articulos, key="sel_articulo") if articulos else None
 
         if articulo:
-            # Obtener densidad del artículo (de tarifas)
-            df_tar = load_tarifas()
-            match_tar = df_tar[(df_tar["FAMILIA"] == familia) & (df_tar["ARTICULO"] == articulo)]
-            densidad = float(match_tar.iloc[0]["DENSIDAD"]) if not match_tar.empty else 0
+            if grupo_compra != "Ninguno":
+                densidad = _infer_density(articulo)
+            else:
+                # Obtener densidad del artículo (de tarifas)
+                df_tar = load_tarifas()
+                match_tar = df_tar[(df_tar["FAMILIA"] == familia) & (df_tar["ARTICULO"] == articulo)]
+                densidad = float(match_tar.iloc[0]["DENSIDAD"]) if not match_tar.empty else 0
 
             st.markdown("#### 📐 Dimensiones de la pieza (mm)")
             col1, col2, col3 = st.columns(3)
@@ -195,10 +276,28 @@ def _crear_oferta():
             with col3:
                 espesor = st.number_input("Espesor", min_value=1, value=50, step=5, key="dim_espesor")
 
-            cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="cant_input")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                cantidad = st.number_input("🔢 Cantidad de piezas", min_value=1, value=100, step=1, key="cant_input")
+            with col_c2:
+                descuento_linea = st.number_input(
+                    "💸 Descuento absoluto (€/m³)",
+                    min_value=0.00,
+                    value=0.00,
+                    step=0.50,
+                    format="%.2f",
+                    key="dto_linea_m3",
+                    help="Descuento que se restará directamente del precio de la línea en €/m³."
+                )
             
             # ── Validar múltiplo logístico ──
-            res_preview = calcular_linea(familia, articulo, planta, densidad, largo, ancho, espesor, cantidad, margen, materia)
+            res_preview = calcular_linea(
+                familia=familia, articulo=articulo, planta_nombre=planta,
+                densidad=densidad, largo_pieza=largo, ancho_pieza=ancho,
+                espesor_pieza=espesor, cantidad_pedida=cantidad,
+                margen_pctg=margen, materia_prima=materia,
+                grupo_compra=grupo_compra, descuento_absoluto_m3=descuento_linea
+            )
             cant_ajustada = res_preview.get("CANTIDAD", cantidad)
             
             if "error" not in res_preview and cant_ajustada != cantidad:
@@ -210,7 +309,8 @@ def _crear_oferta():
                     familia=familia, articulo=articulo, planta_nombre=planta,
                     densidad=densidad, largo_pieza=largo, ancho_pieza=ancho,
                     espesor_pieza=espesor, cantidad_pedida=cant_ajustada,
-                    margen_pctg=margen, materia_prima=materia
+                    margen_pctg=margen, materia_prima=materia,
+                    grupo_compra=grupo_compra, descuento_absoluto_m3=descuento_linea
                 )
                 if "error" in resultado:
                     st.error(resultado["error"])
@@ -264,16 +364,22 @@ def _crear_oferta():
     if lineas:
         with st.expander(f"📄 **Paso 3: Resumen de la oferta ({len(lineas)} líneas)**", expanded=True):
             # ── Selector CON/SIN Scrap ──
-            tipo_precio = st.radio(
-                "💰 Tipo de precio",
-                ["PRECIO CON Scrap", "PRECIO SIN Scrap"],
-                horizontal=True, key="sel_tipo_precio",
-                help="SIN Scrap requiere validación de dirección antes de poder generar el PDF."
-            )
-            es_sin_scrap = tipo_precio == "PRECIO SIN Scrap"
-            
-            if es_sin_scrap:
-                st.warning("⚠️ Has seleccionado **PRECIO SIN Scrap**. Esta oferta requerirá validación de dirección antes de poder descargar el PDF.")
+            grupo_compra = st.session_state.get("grupo_compra", "Ninguno")
+            if grupo_compra != "Ninguno":
+                st.info(f"🏷️ **Grupo de Compra: {grupo_compra}**. Se aplica precio **SIN SCRAP** (Tarifa Plana) obligatoriamente.")
+                es_sin_scrap = True
+                tipo_precio = "PRECIO SIN Scrap"
+            else:
+                tipo_precio = st.radio(
+                    "💰 Tipo de precio",
+                    ["PRECIO CON Scrap", "PRECIO SIN Scrap"],
+                    horizontal=True, key="sel_tipo_precio",
+                    help="SIN Scrap requiere validación de dirección antes de poder generar el PDF."
+                )
+                es_sin_scrap = tipo_precio == "PRECIO SIN Scrap"
+                
+                if es_sin_scrap:
+                    st.warning("⚠️ Has seleccionado **PRECIO SIN Scrap**. Esta oferta requerirá validación de dirección antes de poder descargar el PDF.")
 
             df_lineas = pd.DataFrame(lineas)
             # Recalcular totales según tipo de precio
@@ -294,7 +400,10 @@ def _crear_oferta():
             show_cols = [c for c in show_cols if c in df_lineas.columns]
             st.dataframe(df_lineas[show_cols], use_container_width=True, hide_index=True)
 
-            subtotal = sum(l["_TOTAL_DISPLAY"] for l in lineas)
+            total_descuento = sum(l.get("DESCUENTO_ABSOLUTO_M3", 0.0) * l["M3_PIEZA"] * l["CANTIDAD"] for l in lineas)
+            subtotal_neto = sum(l["_TOTAL_DISPLAY"] for l in lineas)
+            subtotal_bruto = subtotal_neto + total_descuento
+            subtotal = subtotal_neto
             m3_total = sum(l["M3_PIEZA"] * l["CANTIDAD"] for l in lineas)
 
             # Eliminar línea
@@ -330,8 +439,9 @@ def _crear_oferta():
                     porte_final = minimo_transp
 
             with col2:
-                descuento = st.number_input("Descuento (%)", min_value=0.0, value=0.0,
-                                            step=0.5, format="%.1f", key="descuento")
+                st.write("**Descuento aplicado**")
+                equiv_pctg = (total_descuento / subtotal_bruto * 100) if subtotal_bruto > 0 else 0.0
+                st.info(f"💸 Dto. acumulado por líneas: **{total_descuento:,.2f} €** ({equiv_pctg:.1f}%)")
                 imp_plast_kg = float(get_config("impuesto_plastico_kg", "0.45") or 0.45)
                 aplicar_imp = st.checkbox("Aplicar impuesto al plástico", value=False, key="chk_imp")
 
@@ -343,25 +453,38 @@ def _crear_oferta():
                     m3_linea = l["M3_PIEZA"] * l["CANTIDAD"]
                     imp_plastico_total += m3_linea * densidad * imp_plast_kg
 
-            # Descuento se aplica SOLO sobre el producto (subtotal), ANTES de portes
-            descuento_valor = subtotal * descuento / 100
-            subtotal_con_dto = subtotal - descuento_valor
-            total_final = subtotal_con_dto + porte_final + imp_plastico_total
+            descuento_valor = total_descuento
+            descuento = equiv_pctg
+            subtotal_con_dto = subtotal_neto
+            total_final = subtotal_neto + porte_final + imp_plastico_total
 
             st.markdown("---")
             col1, col2, col3, col4, col5 = st.columns(5)
-            with col1: st.metric("Subtotal producto", f"{subtotal:,.2f}€")
+            with col1: st.metric("Subtotal bruto", f"{subtotal_bruto:,.2f}€")
             with col2:
-                if descuento > 0:
-                    st.metric("Dto. producto", f"-{descuento_valor:,.2f}€", delta=f"-{descuento}%")
+                if total_descuento > 0:
+                    st.metric("Dto. total", f"-{total_descuento:,.2f}€", delta=f"-{equiv_pctg:.1f}%")
                 else:
-                    st.metric("Dto. producto", "0,00€")
+                    st.metric("Dto. total", "0,00€")
             with col3: st.metric("Portes", f"{porte_final:,.2f}€")
             with col4: st.metric("Imp. plástico", f"{imp_plastico_total:,.2f}€")
             with col5: st.metric("**TOTAL**", f"{total_final:,.2f}€")
 
             st.markdown("---")
             st.markdown("### 📝 Condiciones y observaciones")
+            
+            proyecto_obra = ""
+            if total_descuento > 0:
+                st.markdown("#### 🏷️ Proyecto / Obra Especial")
+                proyecto_obra = st.text_input(
+                    "Nombre del Proyecto u Obra Especial *",
+                    placeholder="Introduce el nombre del proyecto u obra (obligatorio por tener descuento aplicado)",
+                    key="proyecto_obra_input"
+                )
+                if not proyecto_obra.strip():
+                    st.warning("⚠️ **ATENCIÓN**: El campo 'Nombre del Proyecto u Obra Especial' es obligatorio porque esta oferta incluye descuentos.")
+                st.markdown("---")
+
             col_c1, col_c2 = st.columns(2)
             with col_c1:
                 fecha_validez = st.date_input("📅 Fecha de validez de la oferta", key="fecha_validez")
@@ -382,14 +505,22 @@ def _crear_oferta():
             col_t1.metric("Total Material (Ex Works)", f"{total_oferta:,.2f} €")
             col_t2.metric("Total con Portes/Impuestos", f"{total_con_portes:,.2f} €")
             
-            # Validación pedido mínimo 500€
+            # Validación de bloqueo de PDF y de estado
             bloqueo_pdf = False
+            requiere_validacion = es_sin_scrap or (total_con_portes < 500) or (total_descuento > 0)
+            
             if total_con_portes < 500:
-                st.warning("⚠️ **AVISO DE PEDIDO MÍNIMO**: Esta oferta es inferior a **500€** (sin IVA).")
-                verificado_minimo = st.checkbox("✅ He verificado y acepto que el importe es inferior a 500€")
-                if not verificado_minimo:
+                st.warning("⚠️ **AVISO DE PEDIDO MÍNIMO**: El total de esta oferta es inferior a **500€** (con portes y sin IVA) y requiere validación de dirección.")
+                
+            if total_descuento > 0:
+                if not proyecto_obra.strip():
                     bloqueo_pdf = True
-                    st.info("Debes marcar el check de verificación para poder generar el PDF.")
+                    st.error("❌ El nombre de Proyecto/Obra Especial es obligatorio cuando hay descuentos.")
+                else:
+                    st.info("ℹ️ Esta oferta incluye descuentos y requiere validación de dirección.")
+                    
+            if es_sin_scrap and grupo_compra == "Ninguno":
+                st.info("ℹ️ Has seleccionado precio SIN Scrap, por lo que requiere validación de dirección.")
 
             # ── GENERAR OFERTA ────────────────────────────────────────────
             if st.button("📄 Generar PDF de Oferta", type="primary", disabled=bloqueo_pdf, use_container_width=True):
@@ -423,7 +554,13 @@ def _crear_oferta():
                         comercial = st.session_state.get("user_name", "Comercial")
                         email_com = st.session_state.get("user_email", "")
 
-                        estado_oferta = "Pendiente Validación" if es_sin_scrap else "Borrador"
+                        estado_oferta = "Pendiente Validación" if requiere_validacion else "Borrador"
+                        
+                        # Guardar proyecto/obra en observaciones también por si acaso
+                        obs_final = observaciones
+                        if total_descuento > 0 and proyecto_obra.strip():
+                            obs_final = f"[Proyecto/Obra: {proyecto_obra.strip()}]\n{obs_final}"
+                        
                         oferta_dict = {
                             "NUMERO_OFERTA": numero,
                             "REVISION": 0,
@@ -437,7 +574,7 @@ def _crear_oferta():
                             "CLIENTE_EMAIL": cli.get("EMAIL", ""),
                             "CLIENTE_TELEFONO": cli.get("TELEFONO", ""),
                             "CLIENTE_DIRECCION": cli.get("DIRECCION", ""),
-                            "SUBTOTAL": round(subtotal, 2),
+                            "SUBTOTAL": round(subtotal_bruto, 2),
                             "PORTES": round(porte_final, 2),
                             "IMPUESTO_PLASTICO_TOTAL": round(imp_plastico_total, 2),
                             "DESCUENTO_PCTG": round(descuento, 1),
@@ -445,9 +582,11 @@ def _crear_oferta():
                             "TOTAL": round(total_final, 2),
                             "CONDICIONES_PAGO": cond_pago,
                             "CONDICIONES_TRANSPORTE": cond_transporte,
-                            "OBSERVACIONES": observaciones,
+                            "OBSERVACIONES": obs_final,
                             "TIPO_PRECIO": tipo_precio,
                             "ESTADO": estado_oferta,
+                            "GRUPO_COMPRA": grupo_compra,
+                            "PROYECTO_OBRA": proyecto_obra.strip() if total_descuento > 0 else "",
                         }
 
                         # Si es SIN Scrap, actualizar TODOS los precios de cada línea
@@ -465,8 +604,9 @@ def _crear_oferta():
                         try:
                             oferta_id = save_oferta(oferta_dict, df_lineas_save)
                             
-                            # Si es SIN Scrap, enviar email de validación
-                            if es_sin_scrap:
+                            # Si requiere validación, enviar email de validación
+                            if requiere_validacion:
+                                from data import send_validation_email
                                 email_ok = send_validation_email(oferta_dict)
                                 if email_ok:
                                     st.info("📧 Se ha enviado un email de validación a dirección.")
@@ -474,10 +614,10 @@ def _crear_oferta():
                                     st.warning("⚠️ No se pudo enviar el email de validación. La oferta queda pendiente igualmente.")
                             st.success(f"✅ Oferta {numero} guardada correctamente")
                             
-                            if es_sin_scrap:
-                                st.warning("⏳ Esta oferta está **pendiente de validación**. Podrás descargar el PDF desde 'Mis Ofertas' una vez sea aprobada.")
+                            if requiere_validacion:
+                                st.warning("⏳ Esta oferta está **pendiente de validación**. Podrás descargar el PDF desde 'Mis Ofertas' una vez sea aprobada por un administrador.")
                             else:
-                                # Generar PDF directamente (CON scrap no requiere validación)
+                                # Generar PDF directamente (no requiere validación)
                                 from pdf_generator import generar_pdf_oferta
                                 pdf_bytes = generar_pdf_oferta(oferta_dict, lineas)
                                 

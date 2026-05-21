@@ -21,7 +21,8 @@ def fix():
         # ── 1. Columnas faltantes en OFERTAS ──
         cols = [
             "COMERCIAL_NOMBRE VARCHAR", "CLIENTE_CIF VARCHAR", "CLIENTE_CONTACTO VARCHAR",
-            "CLIENTE_EMAIL VARCHAR", "CLIENTE_TELEFONO VARCHAR", "CLIENTE_DIRECCION VARCHAR"
+            "CLIENTE_EMAIL VARCHAR", "CLIENTE_TELEFONO VARCHAR", "CLIENTE_DIRECCION VARCHAR",
+            "PROYECTO_OBRA VARCHAR", "GRUPO_COMPRA VARCHAR"
         ]
         for col in cols:
             try:
@@ -121,6 +122,58 @@ def fix():
         ('PLANCHA', '2000X1200', 290, 2, 9), ('PLANCHA', '2000X1200', 300, 2, 9)"""
         cs.execute(sql2)
         print(f"✅ Múltiplos PANEL AISLANTE subidos correctamente")
+
+        # ── 5. Crear tabla PRECIOS_GRUPOS_COMPRA y subir Excel ──
+        print("\nCreando tabla PRECIOS_GRUPOS_COMPRA...")
+        cs.execute("""
+            CREATE TABLE IF NOT EXISTS PRECIOS_GRUPOS_COMPRA (
+                ID NUMBER AUTOINCREMENT PRIMARY KEY,
+                ARTICULO VARCHAR(100) NOT NULL,
+                CALIDAD VARCHAR(150) NOT NULL,
+                GRUPO_COMPRA VARCHAR(100) NOT NULL,
+                PRECIO FLOAT,
+                UPDATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+            )
+        """)
+        cs.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON PRECIOS_GRUPOS_COMPRA TO USER FORECAST_APP")
+        print("✅ Tabla PRECIOS_GRUPOS_COMPRA creada y permisos concedidos")
+
+        print("\nCargando precios de grupos de compra desde Excel...")
+        import pandas as pd
+        excel_path = os.path.join(os.path.dirname(__file__), "../Precios grupos de compra_revisado_vbg.xlsx")
+        df_gp = pd.read_excel(excel_path, sheet_name="Hoja1")
+        
+        # Truncar tabla existente
+        cs.execute("TRUNCATE TABLE PRECIOS_GRUPOS_COMPRA")
+        
+        grupos = ["BIG MAT", "ESTRAT. BIG MAT", "EMCCAT", "GRUP GAMMA", "IDAPLAC", "DAVSA", "GRUP IBRICKS"]
+        
+        batch = []
+        for _, r in df_gp.iterrows():
+            articulo = str(r["ARTÍCULO"]).strip()
+            calidad = str(r["CALIDAD"]).strip()
+            
+            for grupo in grupos:
+                val = r[grupo]
+                if pd.isna(val) or str(val).strip() == "*":
+                    precio_val = "NULL"
+                else:
+                    try:
+                        precio_val = str(float(val))
+                    except ValueError:
+                        precio_val = "NULL"
+                
+                # Escapar comillas simples
+                art_esc = articulo.replace("'", "''")
+                cal_esc = calidad.replace("'", "''")
+                grp_esc = grupo.replace("'", "''")
+                
+                batch.append(f"('{art_esc}', '{cal_esc}', '{grp_esc}', {precio_val})")
+        
+        if batch:
+            sql_gp = f"INSERT INTO PRECIOS_GRUPOS_COMPRA (ARTICULO, CALIDAD, GRUPO_COMPRA, PRECIO) VALUES {', '.join(batch)}"
+            cs.execute(sql_gp)
+            print(f"✅ {len(batch)} combinaciones de grupo de compra cargadas correctamente.")
 
         print("\n✅ Base de datos sincronizada al 100%.")
     finally:

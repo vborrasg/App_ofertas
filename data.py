@@ -565,3 +565,77 @@ def send_validation_email(oferta_dict):
     except Exception as e:
         print(f"[ERROR SMTP validación] {e}", file=sys.stderr)
         return False
+
+
+# ── GRUPOS DE COMPRA (PANDAS CACHED LOADER) ───────────────────────────────────
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_precios_grupos():
+    """Carga y normaliza el Excel de precios de grupos de compra."""
+    import os
+    import pandas as pd
+    excel_path = os.path.join(os.path.dirname(__file__), "Precios grupos de compra_revisado_vbg.xlsx")
+    if not os.path.exists(excel_path):
+        return pd.DataFrame()
+    try:
+        df = pd.read_excel(excel_path, sheet_name="Hoja1")
+        # Limpiar columnas
+        df.columns = [c.strip() for c in df.columns]
+        # Normalizar ARTÍCULO y CALIDAD
+        df["ARTÍCULO"] = df["ARTÍCULO"].astype(str).str.strip().str.upper()
+        df["CALIDAD"] = df["CALIDAD"].astype(str).str.strip()
+        
+        # Reemplazar '*' y valores no numéricos por None en las columnas de grupo
+        grupos = ["BIG MAT", "ESTRAT. BIG MAT", "EMCCAT", "GRUP GAMMA", "IDAPLAC", "DAVSA", "GRUP IBRICKS"]
+        for g in grupos:
+            if g in df.columns:
+                df[g] = df[g].apply(lambda x: None if str(x).strip() == "*" or pd.isna(x) else float(str(x).replace(",", ".")))
+        return df
+    except Exception as e:
+        import sys
+        print(f"[ERROR load_precios_grupos] {e}", file=sys.stderr)
+        return pd.DataFrame()
+
+
+def get_productos_grupo(grupo):
+    """Devuelve los artículos únicos que tienen un precio válido para el grupo seleccionado."""
+    if grupo == "Ninguno":
+        return []
+    df = load_precios_grupos()
+    if df.empty or grupo not in df.columns:
+        return []
+    
+    # Filtrar filas donde el precio para este grupo no sea nulo/None
+    df_filtered = df[df[grupo].notna()]
+    return sorted(df_filtered["ARTÍCULO"].unique().tolist())
+
+
+def get_calidades_producto_grupo(grupo, producto):
+    """Devuelve las calidades únicas para un artículo que tienen precio válido para el grupo."""
+    if grupo == "Ninguno":
+        return []
+    df = load_precios_grupos()
+    if df.empty or grupo not in df.columns:
+        return []
+    
+    df_filtered = df[(df["ARTÍCULO"] == producto.upper()) & (df[grupo].notna())]
+    return sorted(df_filtered["CALIDAD"].unique().tolist())
+
+
+def get_precio_grupo(grupo, producto, calidad):
+    """Devuelve el precio float para un grupo, producto y calidad. Retorna None si no hay precio."""
+    if grupo == "Ninguno":
+        return None
+    df = load_precios_grupos()
+    if df.empty or grupo not in df.columns:
+        return None
+    
+    match = df[(df["ARTÍCULO"] == producto.upper()) & (df["CALIDAD"] == calidad)]
+    if match.empty:
+        return None
+    
+    val = match.iloc[0][grupo]
+    if pd.isna(val):
+        return None
+    return float(val)
+
