@@ -41,6 +41,8 @@ def generar_pdf_oferta(oferta, lineas):
     s_footer = ParagraphStyle("footer_k", parent=styles["Normal"],
                               fontSize=6, textColor=HexColor("#888888"),
                               alignment=TA_CENTER)
+    s_highlight_blue = ParagraphStyle("highlight_blue", parent=styles["Normal"],
+                                      fontSize=8, textColor=AZUL, fontName="Helvetica-Bold")
 
     # ── CABECERA CON LOGO ────────────────────────────────────────
     def safe_str(val, default=""):
@@ -61,14 +63,21 @@ def generar_pdf_oferta(oferta, lineas):
         fecha = safe_str(fecha)
     comercial = safe_str(oferta.get("COMERCIAL_NOMBRE", oferta.get("COMERCIAL", "")))
 
-    # Logo
+    # Logo (escalado proporcional, +1 cm más grande = 55*mm de ancho)
     logo_element = Paragraph("<b>KTM</b>", s_title)
     logo_b64 = get_config("logo_base64", "")
     if logo_b64:
         try:
             logo_data = base64.b64decode(logo_b64)
             logo_io = io.BytesIO(logo_data)
-            logo_element = Image(logo_io, width=45*mm, height=15*mm)
+            from PIL import Image as PILImage
+            img = PILImage.open(logo_io)
+            w, h = img.size
+            aspect = h / w
+            new_width = 55 * mm
+            new_height = new_width * aspect
+            logo_io.seek(0)
+            logo_element = Image(logo_io, width=new_width, height=new_height)
         except Exception:
             pass
 
@@ -98,6 +107,63 @@ def generar_pdf_oferta(oferta, lineas):
     elements.append(t_hdr)
     elements.append(Spacer(1, 4*mm))
 
+    # ── FALLBACK Y EXTRACCIÓN DE DATOS DE CLIENTE ──────────
+    import re
+    obs = safe_str(oferta.get("OBSERVACIONES", ""))
+
+    cl_nombre = safe_str(oferta.get('CLIENTE_NOMBRE', ''))
+    if not cl_nombre:
+        match_nom = re.search(r"\[Cliente Nombre:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_nom:
+            cl_nombre = match_nom.group(1).strip()
+
+    cl_contacto = safe_str(oferta.get('CLIENTE_CONTACTO', ''))
+    if not cl_contacto:
+        match_cont = re.search(r"\[Cliente Contacto:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_cont:
+            cl_contacto = match_cont.group(1).strip()
+
+    cl_cif = safe_str(oferta.get('CLIENTE_CIF', ''))
+    if not cl_cif:
+        match_cif = re.search(r"\[Cliente Cif:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_cif:
+            cl_cif = match_cif.group(1).strip()
+
+    cl_telefono = safe_str(oferta.get('CLIENTE_TELEFONO', ''))
+    if not cl_telefono:
+        match_tel = re.search(r"\[Cliente Tel(?:e|é)fono:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_tel:
+            cl_telefono = match_tel.group(1).strip()
+
+    cl_direccion = safe_str(oferta.get('CLIENTE_DIRECCION', ''))
+    if not cl_direccion:
+        match_dir = re.search(r"\[Cliente Direcci(?:o|ó)n:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_dir:
+            cl_direccion = match_dir.group(1).strip()
+
+    cl_email = safe_str(oferta.get('CLIENTE_EMAIL', ''))
+    if not cl_email:
+        match_email = re.search(r"\[Cliente Email:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_email:
+            cl_email = match_email.group(1).strip()
+
+    proyecto_obra = safe_str(oferta.get("PROYECTO_OBRA", ""))
+    if not proyecto_obra:
+        match_po = re.search(r"\[Proyecto/Obra:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_po:
+            proyecto_obra = match_po.group(1).strip()
+
+    grupo_compra = safe_str(oferta.get("GRUPO_COMPRA", ""))
+    if not grupo_compra or grupo_compra == "Ninguno":
+        match_gc = re.search(r"\[Grupo (?:de )?Compra:\s*([^\]]+)\]", obs, re.IGNORECASE)
+        if match_gc:
+            grupo_compra = match_gc.group(1).strip()
+
+    # ── GRUPO DE COMPRA (ubicado encima de DATOS DEL CLIENTE) ───────────
+    if grupo_compra and grupo_compra != "Ninguno":
+        elements.append(Paragraph(f"<b>GRUPO DE COMPRA:</b> {grupo_compra.upper()}", s_highlight_blue))
+        elements.append(Spacer(1, 2*mm))
+
     # ── DATOS DEL CLIENTE ─────────────────────────────────
     elements.append(Paragraph("<b>DATOS DEL CLIENTE</b>", ParagraphStyle(
         "sec_hdr", parent=styles["Normal"], fontSize=10, textColor=white,
@@ -112,45 +178,17 @@ def generar_pdf_oferta(oferta, lineas):
     ]
 
     cl_data = [
-        [Paragraph(f"<b>Empresa:</b> {safe_str(oferta.get('CLIENTE_NOMBRE',''))}", s_small),
-         Paragraph(f"<b>Contacto:</b> {safe_str(oferta.get('CLIENTE_CONTACTO',''))}", s_small)],
-        [Paragraph(f"<b>CIF/NIF:</b> {safe_str(oferta.get('CLIENTE_CIF',''))}", s_small),
-         Paragraph(f"<b>Teléfono:</b> {safe_str(oferta.get('CLIENTE_TELEFONO',''))}", s_small)],
-        [Paragraph(f"<b>Dirección:</b> {safe_str(oferta.get('CLIENTE_DIRECCION',''))}", s_small),
-         Paragraph(f"<b>Email:</b> {safe_str(oferta.get('CLIENTE_EMAIL',''))}", s_small)],
+        [Paragraph(f"<b>Empresa:</b> {cl_nombre}", s_small),
+         Paragraph(f"<b>Contacto:</b> {cl_contacto}", s_small)],
+        [Paragraph(f"<b>CIF/NIF:</b> {cl_cif}", s_small),
+         Paragraph(f"<b>Teléfono:</b> {cl_telefono}", s_small)],
+        [Paragraph(f"<b>Dirección:</b> {cl_direccion}", s_small),
+         Paragraph(f"<b>Email:</b> {cl_email}", s_small)],
     ]
-
-    import re
-    proyecto_obra = safe_str(oferta.get("PROYECTO_OBRA", ""))
-    grupo_compra = safe_str(oferta.get("GRUPO_COMPRA", ""))
-    obs = safe_str(oferta.get("OBSERVACIONES", ""))
-
-    if not proyecto_obra:
-        match_po = re.search(r"\[Proyecto/Obra:\s*([^\]]+)\]", obs)
-        if match_po:
-            proyecto_obra = match_po.group(1).strip()
-
-    if not grupo_compra or grupo_compra == "Ninguno":
-        match_gc = re.search(r"\[Grupo de Compra:\s*([^\]]+)\]", obs)
-        if match_gc:
-            grupo_compra = match_gc.group(1).strip()
-
-    s_highlight_blue = ParagraphStyle(
-        "highlight_blue",
-        parent=styles["Normal"],
-        fontSize=8,
-        textColor=AZUL,
-        fontName="Helvetica-Bold"
-    )
 
     if proyecto_obra:
         row_idx = len(cl_data)
         cl_data.append([Paragraph(f"<b>Proyecto / Obra:</b> {proyecto_obra}", s_highlight_blue), ""])
-        cl_styles.append(("SPAN", (0, row_idx), (1, row_idx)))
-
-    if grupo_compra and grupo_compra != "Ninguno":
-        row_idx = len(cl_data)
-        cl_data.append([Paragraph(f"<b>Grupo de Compra:</b> {grupo_compra}", s_highlight_blue), ""])
         cl_styles.append(("SPAN", (0, row_idx), (1, row_idx)))
 
     t_cl = Table(cl_data, colWidths=[90*mm, 75*mm])

@@ -679,7 +679,7 @@ def send_validation_email(oferta_dict):
     from email.mime.multipart import MIMEMultipart
     import sys
 
-    approver_email = "victor.borras@knauf.com"
+    approver_email = "albope@albope.es"
 
     try:
         smtp_user = st.secrets["SMTP_USER"]

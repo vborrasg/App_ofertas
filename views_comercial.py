@@ -131,6 +131,10 @@ def _crear_oferta():
     # Inicializar session state
     if "lineas_oferta" not in st.session_state:
         st.session_state.lineas_oferta = []
+    if "cliente_datos" not in st.session_state:
+        st.session_state["cliente_datos"] = {
+            "EMPRESA": "", "CIF": "", "CONTACTO_NOMBRE": "", "EMAIL": "", "TELEFONO": "", "DIRECCION": "", "MERCADO": ""
+        }
 
     # ── PASO 1: CLIENTE ───────────────────────────────────────────────────
     with st.expander("🏢 **Paso 1: Datos del cliente**", expanded=True):
@@ -141,44 +145,74 @@ def _crear_oferta():
 
         if modo_cliente == "🔍 Buscar en BD":
             busqueda = st.text_input("Buscar empresa", placeholder="Escribe nombre de empresa...")
-            cli_data = {}
             if busqueda and len(busqueda) >= 2:
                 resultados = buscar_cliente(busqueda)
                 if not resultados.empty:
                     opciones = resultados["EMPRESA"].tolist()
                     seleccion = st.selectbox("Seleccionar empresa", opciones)
                     if seleccion:
-                        cli_row = resultados[resultados["EMPRESA"] == seleccion].iloc[0]
-                        cli_data = cli_row.to_dict()
+                        if st.session_state["cliente_datos"].get("EMPRESA") != seleccion:
+                            cli_row = resultados[resultados["EMPRESA"] == seleccion].iloc[0]
+                            st.session_state["cliente_datos"] = {
+                                "EMPRESA": cli_row.get("EMPRESA", ""),
+                                "CIF": cli_row.get("CIF", ""),
+                                "CONTACTO_NOMBRE": f"{cli_row.get('CONTACTO_NOMBRE','')} {cli_row.get('CONTACTO_APELLIDO','')}".strip(),
+                                "DIRECCION": cli_row.get("DIRECCION", ""),
+                                "EMAIL": cli_row.get("EMAIL", ""),
+                                "TELEFONO": cli_row.get("TELEFONO", cli_row.get("MOVIL", "")),
+                                "MERCADO": cli_row.get("MERCADO", "")
+                            }
                         st.caption("✏️ Puedes editar los campos si falta información.")
                         col1, col2 = st.columns(2)
                         with col1:
-                            cli_data["EMPRESA"] = st.text_input("Empresa", value=cli_data.get("EMPRESA", ""), key="cli_emp")
-                            cli_data["CIF"] = st.text_input("CIF", value=cli_data.get("CIF", ""), key="cli_cif")
-                            cli_data["CONTACTO_NOMBRE"] = st.text_input("Contacto", value=f"{cli_data.get('CONTACTO_NOMBRE','')} {cli_data.get('CONTACTO_APELLIDO','')}".strip(), key="cli_nombre")
-                            cli_data["DIRECCION"] = st.text_input("Dirección", value=cli_data.get("DIRECCION", ""), key="cli_dir")
+                            st.text_input("Empresa", value=st.session_state["cliente_datos"].get("EMPRESA", ""), key="cli_emp")
+                            st.text_input("CIF", value=st.session_state["cliente_datos"].get("CIF", ""), key="cli_cif")
+                            st.text_input("Contacto", value=st.session_state["cliente_datos"].get("CONTACTO_NOMBRE", ""), key="cli_nombre")
+                            st.text_input("Dirección", value=st.session_state["cliente_datos"].get("DIRECCION", ""), key="cli_dir")
                         with col2:
-                            cli_data["EMAIL"] = st.text_input("Email", value=cli_data.get("EMAIL", ""), key="cli_email")
-                            cli_data["TELEFONO"] = st.text_input("Teléfono", value=cli_data.get("TELEFONO", cli_data.get("MOVIL", "")), key="cli_tel")
-                            st.text_input("Mercado", value=cli_data.get("MERCADO", ""), disabled=True, key="cli_merc")
+                            st.text_input("Email", value=st.session_state["cliente_datos"].get("EMAIL", ""), key="cli_email")
+                            st.text_input("Teléfono", value=st.session_state["cliente_datos"].get("TELEFONO", ""), key="cli_tel")
+                            st.text_input("Mercado", value=st.session_state["cliente_datos"].get("MERCADO", ""), disabled=True, key="cli_merc")
+                            
+                        # Actualizar diccionario persistente con widgets renderizados
+                        if st.session_state.get("cli_emp") is not None:
+                            st.session_state["cliente_datos"]["EMPRESA"] = st.session_state["cli_emp"]
+                        if st.session_state.get("cli_cif") is not None:
+                            st.session_state["cliente_datos"]["CIF"] = st.session_state["cli_cif"]
+                        if st.session_state.get("cli_nombre") is not None:
+                            st.session_state["cliente_datos"]["CONTACTO_NOMBRE"] = st.session_state["cli_nombre"]
+                        if st.session_state.get("cli_dir") is not None:
+                            st.session_state["cliente_datos"]["DIRECCION"] = st.session_state["cli_dir"]
+                        if st.session_state.get("cli_email") is not None:
+                            st.session_state["cliente_datos"]["EMAIL"] = st.session_state["cli_email"]
+                        if st.session_state.get("cli_tel") is not None:
+                            st.session_state["cliente_datos"]["TELEFONO"] = st.session_state["cli_tel"]
                 else:
                     st.warning("No se encontraron resultados. Puedes escribir manualmente.")
-            st.session_state["cliente_datos"] = cli_data
         else:
             col1, col2 = st.columns(2)
             with col1:
-                cli_nombre = st.text_input("Nombre empresa *", key="man_emp")
-                cli_cif = st.text_input("CIF", key="man_cif")
-                cli_contacto = st.text_input("Persona de contacto", key="man_cont")
+                st.text_input("Nombre empresa *", value=st.session_state["cliente_datos"].get("EMPRESA", ""), key="man_emp")
+                st.text_input("CIF", value=st.session_state["cliente_datos"].get("CIF", ""), key="man_cif")
+                st.text_input("Persona de contacto", value=st.session_state["cliente_datos"].get("CONTACTO_NOMBRE", ""), key="man_cont")
             with col2:
-                cli_email = st.text_input("Email", key="man_email")
-                cli_tel = st.text_input("Teléfono", key="man_tel")
-                cli_dir = st.text_input("Dirección", key="man_dir")
-            st.session_state["cliente_datos"] = {
-                "EMPRESA": cli_nombre, "CIF": cli_cif,
-                "CONTACTO_NOMBRE": cli_contacto, "EMAIL": cli_email,
-                "TELEFONO": cli_tel, "DIRECCION": cli_dir
-            }
+                st.text_input("Email", value=st.session_state["cliente_datos"].get("EMAIL", ""), key="man_email")
+                st.text_input("Teléfono", value=st.session_state["cliente_datos"].get("TELEFONO", ""), key="man_tel")
+                st.text_input("Dirección", value=st.session_state["cliente_datos"].get("DIRECCION", ""), key="man_dir")
+                
+            # Actualizar diccionario persistente con widgets renderizados
+            if st.session_state.get("man_emp") is not None:
+                st.session_state["cliente_datos"]["EMPRESA"] = st.session_state["man_emp"]
+            if st.session_state.get("man_cif") is not None:
+                st.session_state["cliente_datos"]["CIF"] = st.session_state["man_cif"]
+            if st.session_state.get("man_cont") is not None:
+                st.session_state["cliente_datos"]["CONTACTO_NOMBRE"] = st.session_state["man_cont"]
+            if st.session_state.get("man_email") is not None:
+                st.session_state["cliente_datos"]["EMAIL"] = st.session_state["man_email"]
+            if st.session_state.get("man_tel") is not None:
+                st.session_state["cliente_datos"]["TELEFONO"] = st.session_state["man_tel"]
+            if st.session_state.get("man_dir") is not None:
+                st.session_state["cliente_datos"]["DIRECCION"] = st.session_state["man_dir"]
 
         st.markdown("---")
         st.markdown("### 🏷️ Grupo de Compra")
@@ -528,25 +562,23 @@ def _crear_oferta():
 
             # ── GENERAR OFERTA ────────────────────────────────────────────
             if st.button("📄 Generar PDF de Oferta", type="primary", disabled=bloqueo_pdf, use_container_width=True):
-                    # Leer datos del cliente desde session state (widgets)
-                    cli = st.session_state.get("cliente_datos", {})
-                    # Sobreescribir con valores actuales de los widgets (por si el expander se colapsó)
+                    # Leer datos del cliente desde session state (widgets/persistido)
+                    cli = st.session_state.get("cliente_datos", {}).copy()
+                    # Sobreescribir con valores actuales de los widgets SOLO si no son vacíos/None (por si el expander está abierto)
                     if st.session_state.get("modo_cliente", "").startswith("✏️"):
-                        cli = {
-                            "EMPRESA": st.session_state.get("man_emp", cli.get("EMPRESA", "")),
-                            "CIF": st.session_state.get("man_cif", cli.get("CIF", "")),
-                            "CONTACTO_NOMBRE": st.session_state.get("man_cont", cli.get("CONTACTO_NOMBRE", "")),
-                            "EMAIL": st.session_state.get("man_email", cli.get("EMAIL", "")),
-                            "TELEFONO": st.session_state.get("man_tel", cli.get("TELEFONO", "")),
-                            "DIRECCION": st.session_state.get("man_dir", cli.get("DIRECCION", "")),
-                        }
+                        if st.session_state.get("man_emp"): cli["EMPRESA"] = st.session_state["man_emp"]
+                        if st.session_state.get("man_cif"): cli["CIF"] = st.session_state["man_cif"]
+                        if st.session_state.get("man_cont"): cli["CONTACTO_NOMBRE"] = st.session_state["man_cont"]
+                        if st.session_state.get("man_email"): cli["EMAIL"] = st.session_state["man_email"]
+                        if st.session_state.get("man_tel"): cli["TELEFONO"] = st.session_state["man_tel"]
+                        if st.session_state.get("man_dir"): cli["DIRECCION"] = st.session_state["man_dir"]
                     elif st.session_state.get("modo_cliente", "").startswith("🔍"):
-                        cli["EMPRESA"] = st.session_state.get("cli_emp", cli.get("EMPRESA", ""))
-                        cli["CIF"] = st.session_state.get("cli_cif", cli.get("CIF", ""))
-                        cli["CONTACTO_NOMBRE"] = st.session_state.get("cli_nombre", cli.get("CONTACTO_NOMBRE", ""))
-                        cli["EMAIL"] = st.session_state.get("cli_email", cli.get("EMAIL", ""))
-                        cli["TELEFONO"] = st.session_state.get("cli_tel", cli.get("TELEFONO", ""))
-                        cli["DIRECCION"] = st.session_state.get("cli_dir", cli.get("DIRECCION", ""))
+                        if st.session_state.get("cli_emp"): cli["EMPRESA"] = st.session_state["cli_emp"]
+                        if st.session_state.get("cli_cif"): cli["CIF"] = st.session_state["cli_cif"]
+                        if st.session_state.get("cli_nombre"): cli["CONTACTO_NOMBRE"] = st.session_state["cli_nombre"]
+                        if st.session_state.get("cli_email"): cli["EMAIL"] = st.session_state["cli_email"]
+                        if st.session_state.get("cli_tel"): cli["TELEFONO"] = st.session_state["cli_tel"]
+                        if st.session_state.get("cli_dir"): cli["DIRECCION"] = st.session_state["cli_dir"]
 
                     if not cli.get("EMPRESA"):
                         st.error("❌ Introduce los datos del cliente primero")
