@@ -1,6 +1,6 @@
 """
 pdf_generator.py — Generación del PDF de oferta con reportlab.
-Formato ODP de Knauf Industries + logo + scrap/margen.
+Formato ODP de KTM + logo + scrap/margen.
 """
 import io
 import base64
@@ -32,10 +32,12 @@ def generar_pdf_oferta(oferta, lineas):
     FONDO_HDR = HexColor("#2c3e50")
 
     # Estilos
-    s_title = ParagraphStyle("title_knauf", parent=styles["Title"],
+    s_title = ParagraphStyle("title_ktm", parent=styles["Title"],
                              fontSize=18, textColor=AZUL, spaceAfter=2*mm)
     s_normal = ParagraphStyle("normal_k", parent=styles["Normal"], fontSize=8)
-    s_small = ParagraphStyle("small_k", parent=styles["Normal"], fontSize=7)
+    s_small = ParagraphStyle("small_k", parent=styles["Normal"], fontSize=6.5)
+    s_small_center = ParagraphStyle("small_c", parent=styles["Normal"], fontSize=6.5, alignment=TA_CENTER)
+    s_small_right = ParagraphStyle("small_r", parent=styles["Normal"], fontSize=6.5, alignment=TA_RIGHT)
     s_footer = ParagraphStyle("footer_k", parent=styles["Normal"],
                               fontSize=6, textColor=HexColor("#888888"),
                               alignment=TA_CENTER)
@@ -60,7 +62,7 @@ def generar_pdf_oferta(oferta, lineas):
     comercial = safe_str(oferta.get("COMERCIAL_NOMBRE", oferta.get("COMERCIAL", "")))
 
     # Logo
-    logo_element = Paragraph("<b>KNAUF INDUSTRIES</b>", s_title)
+    logo_element = Paragraph("<b>KTM</b>", s_title)
     logo_b64 = get_config("logo_base64", "")
     if logo_b64:
         try:
@@ -70,7 +72,7 @@ def generar_pdf_oferta(oferta, lineas):
         except Exception:
             pass
 
-    emp_nombre = get_config("empresa_nombre", "KNAUF MIRET, S.L.")
+    emp_nombre = get_config("empresa_nombre", "KTM MIRET, S.L.")
     emp_dir = get_config("empresa_direccion", "")
     emp_tel = get_config("empresa_telefono", "")
 
@@ -103,6 +105,12 @@ def generar_pdf_oferta(oferta, lineas):
         leading=14, borderPadding=(2, 4, 2, 4))))
     elements.append(Spacer(1, 1*mm))
 
+    cl_styles = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]
+
     cl_data = [
         [Paragraph(f"<b>Empresa:</b> {safe_str(oferta.get('CLIENTE_NOMBRE',''))}", s_small),
          Paragraph(f"<b>Contacto:</b> {safe_str(oferta.get('CLIENTE_CONTACTO',''))}", s_small)],
@@ -111,12 +119,42 @@ def generar_pdf_oferta(oferta, lineas):
         [Paragraph(f"<b>Dirección:</b> {safe_str(oferta.get('CLIENTE_DIRECCION',''))}", s_small),
          Paragraph(f"<b>Email:</b> {safe_str(oferta.get('CLIENTE_EMAIL',''))}", s_small)],
     ]
+
+    import re
+    proyecto_obra = safe_str(oferta.get("PROYECTO_OBRA", ""))
+    grupo_compra = safe_str(oferta.get("GRUPO_COMPRA", ""))
+    obs = safe_str(oferta.get("OBSERVACIONES", ""))
+
+    if not proyecto_obra:
+        match_po = re.search(r"\[Proyecto/Obra:\s*([^\]]+)\]", obs)
+        if match_po:
+            proyecto_obra = match_po.group(1).strip()
+
+    if not grupo_compra or grupo_compra == "Ninguno":
+        match_gc = re.search(r"\[Grupo de Compra:\s*([^\]]+)\]", obs)
+        if match_gc:
+            grupo_compra = match_gc.group(1).strip()
+
+    s_highlight_blue = ParagraphStyle(
+        "highlight_blue",
+        parent=styles["Normal"],
+        fontSize=8,
+        textColor=AZUL,
+        fontName="Helvetica-Bold"
+    )
+
+    if proyecto_obra:
+        row_idx = len(cl_data)
+        cl_data.append([Paragraph(f"<b>Proyecto / Obra:</b> {proyecto_obra}", s_highlight_blue), ""])
+        cl_styles.append(("SPAN", (0, row_idx), (1, row_idx)))
+
+    if grupo_compra and grupo_compra != "Ninguno":
+        row_idx = len(cl_data)
+        cl_data.append([Paragraph(f"<b>Grupo de Compra:</b> {grupo_compra}", s_highlight_blue), ""])
+        cl_styles.append(("SPAN", (0, row_idx), (1, row_idx)))
+
     t_cl = Table(cl_data, colWidths=[90*mm, 75*mm])
-    t_cl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
+    t_cl.setStyle(TableStyle(cl_styles))
     elements.append(t_cl)
     elements.append(Spacer(1, 5*mm))
 
@@ -125,30 +163,54 @@ def generar_pdf_oferta(oferta, lineas):
         "sec2", parent=styles["Normal"], fontSize=10, textColor=AZUL, spaceAfter=2*mm)))
 
     headers = ["Producto", "Artículo", "Dimensiones", "Planta", "Uds",
-               "€/m³", "€/pza", "Importe"]
+               "€/m³ Base", "Dto. €/m³", "€/m³ Neto", "€/pza", "Importe"]
     prod_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle("hdr_cell",
-                  parent=styles["Normal"], fontSize=6, textColor=white,
+                  parent=styles["Normal"], fontSize=6.2, textColor=white,
                   alignment=TA_CENTER)) for h in headers]]
 
+    import re
     for ln in lineas:
         if isinstance(ln, dict):
             # PRECIO_M3 y PRECIO_UNITARIO son los campos canónicos (ya ajustados SIN/CON scrap)
-            precio_m3 = float(ln.get('PRECIO_M3', ln.get('EUR_M3_CON_SCRAP', 0)) or 0)
+            precio_m3_neto = float(ln.get('PRECIO_M3', ln.get('EUR_M3_CON_SCRAP', 0)) or 0)
             precio_pza = float(ln.get('PRECIO_UNITARIO', ln.get('PRECIO_PIEZA_CON_SCRAP', 0)) or 0)
             total_linea = float(ln.get('TOTAL_LINEA', 0) or 0)
+            
+            # Extraer descuento €/m³ de la descripción o campos de la línea
+            desc_text = str(ln.get("DESCRIPCION", "")) or str(ln.get("DIMENSION", "")) or ""
+            # Quitar el descuento de la descripción para la columna de dimensiones
+            dimension_limpia = re.sub(r"\s*\[Dto:[^\]]+\]", "", desc_text).strip()
+            
+            match_dto = re.search(r"\[Dto:\s*-?([\d\.,]+)\s*€/m³\]", desc_text)
+            if match_dto:
+                descuento_m3 = float(match_dto.group(1).replace(",", "."))
+            else:
+                descuento_m3 = float(ln.get("DESCUENTO_ABSOLUTO_M3", 0) or 0)
+                
+            # Base €/m³ antes del descuento
+            precio_m3_base = precio_m3_neto + descuento_m3
+            
+            # M3 por pieza
+            m3_pieza = float(ln.get("M3_PIEZA", 0) or 0)
+            
+            # Dimensiones con m³ de la pieza debajo
+            dimensiones_html = f"{dimension_limpia}<br/>({m3_pieza:.6f} m³)"
+            
             row = [
                 Paragraph(str(ln.get("TIPO_PRODUCTO", ""))[:20], s_small),
                 Paragraph(str(ln.get("CALIDAD", ""))[:25], s_small),
-                Paragraph(str(ln.get("DESCRIPCION", "")), s_small),
-                Paragraph(str(ln.get("PLANTA", "")), s_small),
-                Paragraph(str(int(ln.get("CANTIDAD", 0))), s_small),
-                Paragraph(f"{precio_m3:.2f}", s_small),
-                Paragraph(f"{precio_pza:.4f}", s_small),
-                Paragraph(f"{total_linea:,.2f}", s_small),
+                Paragraph(dimensiones_html, s_small),
+                Paragraph(str(ln.get("PLANTA", "")), s_small_center),
+                Paragraph(str(int(ln.get("CANTIDAD", 0))), s_small_right),
+                Paragraph(f"{precio_m3_base:,.2f}", s_small_right),
+                Paragraph(f"-{descuento_m3:,.2f}" if descuento_m3 > 0 else "0.00", s_small_right),
+                Paragraph(f"{precio_m3_neto:,.2f}", s_small_right),
+                Paragraph(f"{precio_pza:,.2f}", s_small_right),
+                Paragraph(f"{total_linea:,.2f}", s_small_right),
             ]
             prod_data.append(row)
 
-    col_w = [22*mm, 28*mm, 25*mm, 18*mm, 14*mm, 18*mm, 18*mm, 22*mm]
+    col_w = [16*mm, 21*mm, 21*mm, 21*mm, 9*mm, 15*mm, 12*mm, 15*mm, 16*mm, 24*mm]
     t_prod = Table(prod_data, colWidths=col_w, repeatRows=1)
     t_style = [
         ("BACKGROUND", (0, 0), (-1, 0), FONDO_HDR),
@@ -158,7 +220,6 @@ def generar_pdf_oferta(oferta, lineas):
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
     ]
     for i in range(1, len(prod_data)):
         if i % 2 == 0:
@@ -275,7 +336,7 @@ def generar_pdf_oferta(oferta, lineas):
         elements.append(Spacer(1, 3*mm))
 
     # ── FOOTER EMPRESA ────────────────────────────────────
-    emp = get_config("empresa_nombre", "KNAUF MIRET, S.L.")
+    emp = get_config("empresa_nombre", "KTM MIRET, S.L.")
     dire = get_config("empresa_direccion", "")
     cif = get_config("empresa_cif", "")
     reg = get_config("empresa_registro", "")

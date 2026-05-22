@@ -1,10 +1,10 @@
 """
-app.py — Punto de entrada App Ofertas Knauf Industries.
+app.py — Punto de entrada App Ofertas KTM.
 Streamlit Cloud + Snowflake.
 """
 import streamlit as st
 
-st.set_page_config(page_title="Ofertas — Knauf Industries", page_icon="📄",
+st.set_page_config(page_title="Ofertas — KTM", page_icon="📄",
                    layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""

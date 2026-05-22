@@ -38,7 +38,7 @@ def _send_otp(email_to, otp):
         msg = MIMEMultipart()
         msg["From"] = smtp_user
         msg["To"] = email_to
-        msg["Subject"] = "🔐 Código de acceso — App Ofertas Knauf"
+        msg["Subject"] = "🔐 Código de acceso — App Ofertas KTM"
         body = f"""
         <html><body style="font-family:Arial;padding:20px;">
         <h2>Tu código de acceso</h2>
@@ -46,7 +46,7 @@ def _send_otp(email_to, otp):
                   background:#eaf2f8;padding:20px;text-align:center;
                   border-radius:8px;letter-spacing:8px;">{otp}</p>
         <p>Este código caduca en 10 minutos.</p>
-        <hr><p style="color:#888;font-size:12px;">App Ofertas — Knauf Industries</p>
+        <hr><p style="color:#888;font-size:12px;">App Ofertas — KTM</p>
         </body></html>
         """
         msg.attach(MIMEText(body, "html"))
@@ -63,7 +63,7 @@ def _send_otp(email_to, otp):
 def render_login():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("### 🔐 Acceso — Ofertas Knauf")
+        st.markdown("### 🔐 Acceso — Ofertas KTM")
 
         if st.session_state.login_step == "credentials":
             with st.form("login_form"):

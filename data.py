@@ -52,8 +52,8 @@ FAMILIAS_PRODUCTO = {
         "MECANIZADOS_EPS_Mayor_1000_mm", "MECANIZADOS_GRAFITO_Mayor_1000_mm",
         "MECANIZADOS_SOSTENIBLES_Mayor_1000_mm"],
     "RECTIBOARD": ["RECTIBOARD.EPS", "RECTIBOARD.GRAFITO"],
-    "Knauf ETIX": ["ETIX.EPS"],
-    "Knauf ETIX Grafit": ["ETIX.GRAFITO"],
+    "KTM ETIX": ["ETIX.EPS"],
+    "KTM ETIX Grafit": ["ETIX.GRAFITO"],
 }
 
 TIPOS_MATERIA_PRIMA = ["EPS_Blanco", "EPS_Grafito", "EPS_SOSTENIBLES"]
@@ -62,6 +62,97 @@ PLANTAS = ["Vilafranca", "Valencia", "Valladolid"]
 
 
 # ── Conexión Snowflake ────────────────────────────────────────────────────────
+
+def run_db_migrations(conn):
+    """Ejecuta migraciones silenciosas para asegurar que las columnas necesarias existen en la base de datos."""
+    import os
+    import pandas as pd
+    try:
+        cur = conn.cursor()
+        
+        # 1. Columnas faltantes en OFERTAS
+        cols = [
+            "COMERCIAL_NOMBRE VARCHAR", "CLIENTE_CIF VARCHAR", "CLIENTE_CONTACTO VARCHAR",
+            "CLIENTE_EMAIL VARCHAR", "CLIENTE_TELEFONO VARCHAR", "CLIENTE_DIRECCION VARCHAR",
+            "PROYECTO_OBRA VARCHAR", "GRUPO_COMPRA VARCHAR"
+        ]
+        for col in cols:
+            try:
+                cur.execute(f"ALTER TABLE OFERTAS ADD COLUMN {col}")
+            except Exception:
+                pass # Ignorar si ya existe o no tiene permisos
+
+        # 2. Columna faltante en TRANSPORTE
+        try:
+            cur.execute("ALTER TABLE TRANSPORTE ADD COLUMN MINIMO_TRANSPORTE FLOAT")
+        except Exception:
+            pass
+
+        # 3. Crear tabla PRECIOS_GRUPOS_COMPRA si no existe
+        try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS PRECIOS_GRUPOS_COMPRA (
+                    ID NUMBER AUTOINCREMENT PRIMARY KEY,
+                    ARTICULO VARCHAR(100) NOT NULL,
+                    CALIDAD VARCHAR(150) NOT NULL,
+                    GRUPO_COMPRA VARCHAR(100) NOT NULL,
+                    PRECIO FLOAT,
+                    UPDATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+                )
+            """)
+            try:
+                cur.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON PRECIOS_GRUPOS_COMPRA TO USER FORECAST_APP")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # 4. Si la tabla PRECIOS_GRUPOS_COMPRA está vacía, cargar desde Excel
+        try:
+            cur.execute("SELECT COUNT(*) AS CNT FROM PRECIOS_GRUPOS_COMPRA")
+            count_val = int(cur.fetchone()[0])
+        except Exception:
+            count_val = 0
+
+        if count_val == 0:
+            excel_path = os.path.join(os.path.dirname(__file__), "Precios grupos de compra_revisado_vbg.xlsx")
+            if not os.path.exists(excel_path):
+                excel_path = os.path.join(os.path.dirname(__file__), "../Precios grupos de compra_revisado_vbg.xlsx")
+            
+            if os.path.exists(excel_path):
+                df_gp = pd.read_excel(excel_path, sheet_name="Hoja1")
+                grupos = ["BIG MAT", "ESTRAT. BIG MAT", "EMCCAT", "GRUP GAMMA", "IDAPLAC", "DAVSA", "GRUP IBRICKS"]
+                batch = []
+                for _, r in df_gp.iterrows():
+                    articulo = str(r.get("ARTÍCULO", r.get("ARTICULO", ""))).strip()
+                    calidad = str(r.get("CALIDAD", "")).strip()
+                    if not articulo or not calidad:
+                        continue
+                    
+                    for grupo in grupos:
+                        if grupo in df_gp.columns:
+                            val = r[grupo]
+                            if pd.isna(val) or str(val).strip() == "*":
+                                precio_val = "NULL"
+                            else:
+                                try:
+                                    precio_val = str(float(val))
+                                except ValueError:
+                                    precio_val = "NULL"
+                            
+                            art_esc = articulo.replace("'", "''")
+                            cal_esc = calidad.replace("'", "''")
+                            grp_esc = grupo.replace("'", "''")
+                            batch.append(f"('{art_esc}', '{cal_esc}', '{grp_esc}', {precio_val})")
+                
+                if batch:
+                    cur.execute("TRUNCATE TABLE PRECIOS_GRUPOS_COMPRA")
+                    sql_gp = f"INSERT INTO PRECIOS_GRUPOS_COMPRA (ARTICULO, CALIDAD, GRUPO_COMPRA, PRECIO) VALUES {', '.join(batch)}"
+                    cur.execute(sql_gp)
+        cur.close()
+    except Exception as e:
+        print(f"Error en run_db_migrations: {e}")
+
 
 def _get_connection():
     """Crea o reutiliza conexión a Snowflake (mismo patrón que Forecast)."""
@@ -88,6 +179,15 @@ def _get_connection():
             schema    = st.secrets.get("SNOWFLAKE_SCHEMA", "APP"),
         )
         st.session_state['_sf_conn'] = conn
+        
+        # Ejecutar migraciones una sola vez por sesión
+        if not st.session_state.get('_db_migrated', False):
+            try:
+                run_db_migrations(conn)
+                st.session_state['_db_migrated'] = True
+            except Exception as em:
+                print(f"Error al ejecutar migraciones en la app: {em}")
+                
         return conn
     except Exception as e:
         st.error(f"❌ Error de conexión a Snowflake: `{type(e).__name__}: {e}`")
@@ -428,10 +528,60 @@ def next_oferta_number():
 
 
 def save_oferta(oferta_dict, lineas_df):
-    cols = list(oferta_dict.keys())
+    of_copy = oferta_dict.copy()
+
+    # Obtener las columnas reales en Snowflake para evitar errores de compilación
+    columnas_reales = set()
+    try:
+        desc_df = _query(f"SELECT * FROM {T_OFERTAS} WHERE 1=0")
+        if not desc_df.empty or len(desc_df.columns) > 0:
+            columnas_reales = set(desc_df.columns)
+    except Exception as e:
+        print(f"Error al describir columnas de {T_OFERTAS}: {e}")
+    
+    # Fallback de columnas si la base de datos no responde o retorna vacío
+    if not columnas_reales:
+        columnas_reales = {
+            'ID', 'NUMERO_OFERTA', 'REVISION', 'COMERCIAL', 'FECHA', 'VALIDEZ', 'GRUPO_COMPRA', 
+            'PLANTA', 'CLIENTE_NOMBRE', 'CLIENTE_RAZON_SOCIAL', 'CLIENTE_DIRECCION', 'CLIENTE_CP_CIUDAD', 
+            'CLIENTE_NIF', 'CLIENTE_CONTACTO', 'CLIENTE_TELEFONO', 'CLIENTE_EMAIL', 'FORMA_ENTREGA', 
+            'PLAZO_ENTREGA', 'CONDICIONES_PAGO', 'PLAZO_PAGO', 'OBSERVACIONES', 'SUBTOTAL', 
+            'COSTE_TRANSPORTE', 'IMPUESTO_PLASTICO', 'DESCUENTO_PCTG', 'TOTAL', 'ESTADO', 'CREATED_AT', 
+            'COMERCIAL_NOMBRE', 'CLIENTE_CIF', 'PORTES', 'IMPUESTO_PLASTICO_TOTAL', 'DESCUENTO_VALOR', 
+            'FECHA_VALIDEZ', 'CONDICIONES_TRANSPORTE', 'TIPO_PRECIO'
+        }
+
+    # Si pudimos leer las columnas reales, limpiamos las no existentes
+    if columnas_reales:
+        obs_extras = []
+        for col in list(of_copy.keys()):
+            if col not in columnas_reales:
+                val = of_copy.pop(col)
+                if val and str(val).strip():
+                    if col == "PROYECTO_OBRA":
+                        obs_extras.append(f"[Proyecto/Obra: {str(val).strip()}]")
+                    elif col == "GRUPO_COMPRA":
+                        obs_extras.append(f"[Grupo Compra: {str(val).strip()}]")
+                    elif col == "COMERCIAL_NOMBRE":
+                        obs_extras.append(f"[Nombre Comercial: {str(val).strip()}]")
+                    elif col.startswith("CLIENTE_"):
+                        label = col.replace("CLIENTE_", "").capitalize()
+                        obs_extras.append(f"[Cliente {label}: {str(val).strip()}]")
+                    else:
+                        obs_extras.append(f"[{col}: {str(val).strip()}]")
+        
+        if obs_extras:
+            obs_actual = of_copy.get("OBSERVACIONES", "") or ""
+            linea_adicional = "\n".join(obs_extras)
+            if obs_actual:
+                of_copy["OBSERVACIONES"] = f"{linea_adicional}\n{obs_actual}"
+            else:
+                of_copy["OBSERVACIONES"] = linea_adicional
+
+    cols = list(of_copy.keys())
     vals = []
     for c in cols:
-        v = oferta_dict[c]
+        v = of_copy[c]
         if v is None:
             vals.append("NULL")
         elif isinstance(v, (int, float)):
@@ -444,7 +594,20 @@ def save_oferta(oferta_dict, lineas_df):
     val_str = ", ".join(vals)
     _exec(f"INSERT INTO {T_OFERTAS} ({col_str}) VALUES ({val_str})")
 
-    id_df = _query(f"SELECT MAX(ID) AS ID FROM {T_OFERTAS}")
+    # Obtener el ID de la oferta recién insertada de manera totalmente segura y thread-safe.
+    # Evitamos usar MAX(ID) ya que Snowflake no garantiza secuencias continuas/monótonas y
+    # puede retornar IDs inconsistentes si hay múltiples inserciones o problemas de caché de secuencias.
+    numero_oferta = of_copy.get("NUMERO_OFERTA") or oferta_dict.get("NUMERO_OFERTA")
+    revision = of_copy.get("REVISION") if of_copy.get("REVISION") is not None else oferta_dict.get("REVISION", 0)
+    
+    id_df = pd.DataFrame()
+    if numero_oferta:
+        id_df = _query(f"SELECT ID FROM {T_OFERTAS} WHERE NUMERO_OFERTA = '{_esc(numero_oferta)}' AND REVISION = {int(revision)}")
+        
+    if id_df.empty:
+        # Fallback de de emergencia a MAX(ID) por compatibilidad
+        id_df = _query(f"SELECT MAX(ID) AS ID FROM {T_OFERTAS}")
+        
     oferta_id = int(id_df.iloc[0]["ID"])
 
     batch = []
@@ -553,7 +716,7 @@ def send_validation_email(oferta_dict):
                 <td style="padding:8px;color:#c0392b;font-weight:bold;">SIN SCRAP</td></tr>
         </table>
         <p style="margin-top:20px;">Accede a la aplicación para validar o rechazar esta oferta.</p>
-        <hr><p style="color:#888;font-size:12px;">App Ofertas — Knauf Industries</p>
+        <hr><p style="color:#888;font-size:12px;">App Ofertas — KTM</p>
         </body></html>
         """
         msg.attach(MIMEText(body, "html"))

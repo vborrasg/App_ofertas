@@ -387,6 +387,8 @@ def _crear_oferta():
                 for i, l in enumerate(lineas):
                     lineas[i]["_PRECIO_DISPLAY"] = l.get("PRECIO_PIEZA_SIN_SCRAP", l.get("PRECIO_PIEZA_CON_SCRAP", 0))
                     lineas[i]["_TOTAL_DISPLAY"] = lineas[i]["_PRECIO_DISPLAY"] * l.get("CANTIDAD", 0)
+                    # Descuento exacto por línea SIN scrap
+                    lineas[i]["_DESCUENTO_LINEA"] = l.get("DESCUENTO_PIEZA_SIN_SCRAP", 0.0) * l.get("CANTIDAD", 0)
                 df_lineas = pd.DataFrame(lineas)
                 show_cols = ["CALIDAD", "DIMENSION", "PLANTA", "CANTIDAD", "MATERIA_PRIMA",
                              "PRECIO_PIEZA_SIN_SCRAP", "_TOTAL_DISPLAY"]
@@ -394,13 +396,15 @@ def _crear_oferta():
                 for i, l in enumerate(lineas):
                     lineas[i]["_PRECIO_DISPLAY"] = l.get("PRECIO_PIEZA_CON_SCRAP", 0)
                     lineas[i]["_TOTAL_DISPLAY"] = l.get("TOTAL_LINEA", 0)
+                    # Descuento exacto por línea CON scrap
+                    lineas[i]["_DESCUENTO_LINEA"] = l.get("DESCUENTO_PIEZA_CON_SCRAP", 0.0) * l.get("CANTIDAD", 0)
                 df_lineas = pd.DataFrame(lineas)
                 show_cols = ["CALIDAD", "DIMENSION", "PLANTA", "CANTIDAD", "MATERIA_PRIMA",
                              "PRECIO_PIEZA_CON_SCRAP", "TOTAL_LINEA"]
             show_cols = [c for c in show_cols if c in df_lineas.columns]
             st.dataframe(df_lineas[show_cols], use_container_width=True, hide_index=True)
 
-            total_descuento = sum(l.get("DESCUENTO_ABSOLUTO_M3", 0.0) * l["M3_PIEZA"] * l["CANTIDAD"] for l in lineas)
+            total_descuento = sum(l.get("_DESCUENTO_LINEA", 0.0) for l in lineas)
             subtotal_neto = sum(l["_TOTAL_DISPLAY"] for l in lineas)
             subtotal_bruto = subtotal_neto + total_descuento
             subtotal = subtotal_neto
